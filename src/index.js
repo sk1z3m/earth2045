@@ -3,7 +3,7 @@
 // which Cloudflare serves before this code runs. Every 30 minutes Cloudflare
 // also calls scheduled(), which lets the AI nations take their turns.
 
-import { newNation, accrueTurns, applyAction, spyOp, view, stats, GameError, RULES } from './game.js';
+import { newNation, accrueTurns, applyAction, spyOp, groundAssault, isProtected, view, stats, GameError, RULES } from './game.js';
 import { ROSTER, newBot, botPlay } from './bots.js';
 import { AUTH, sha256, randomToken, hashPassword, sameHex, checkUsername, checkPassword, checkNationName } from './auth.js';
 import { HttpError, json, readJson, bearer } from './http.js';
@@ -77,10 +77,14 @@ async function route(request, env, url) {
   if (pathname === '/api/action' && method === 'POST') return doAction(request, env);
 
   if (pathname === '/api/rankings' && method === 'GET') {
-    const { results } = await env.DB
-      .prepare('SELECT name, land, networth, is_bot FROM nations ORDER BY land DESC, networth DESC LIMIT 25')
-      .all();
-    return json({ rankings: results.map(r => ({ name: r.name, land: r.land, networth: r.networth, ai: r.is_bot === 1 })) });
+    const { results } = await env.DB.prepare(
+      `SELECT name, land, networth, is_bot, state FROM nations ORDER BY land DESC, networth DESC LIMIT 25`
+    ).all();
+    const now = Date.now();
+    return json({ rankings: results.map(r => ({
+      name: r.name, land: r.land, networth: r.networth, ai: r.is_bot === 1,
+      protected: isProtected(JSON.parse(r.state), now),
+    })) });
   }
 
   throw new HttpError(404, 'Not found.');
@@ -233,9 +237,58 @@ async function doSpy(request, env, action) {
   throw new HttpError(409, 'Your nation changed while that was processing. Please try again.');
 }
 
+// Fails the whole batch (so nothing is saved) unless the statement before it changed exactly one row.
+const GUARD = "SELECT CASE WHEN changes() = 1 THEN 1 ELSE json('nation changed') END";
+
+async function doAssault(request, env, action) {
+  const targetName = String(action.target ?? '').trim();
+  if (!targetName) throw new HttpError(400, 'Choose a nation to attack.');
+  const sent = {};
+  for (const [k, v] of Object.entries(action.units ?? {})) sent[k] = Number(v);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const row = await loadNation(request, env);
+    const target = await env.DB.prepare('SELECT id, name, state, version FROM nations WHERE name = ?').bind(targetName).first();
+    if (!target) throw new HttpError(404, `No nation called ${targetName}.`);
+    if (target.id === row.id) throw new HttpError(400, "You can't attack yourself.");
+    const now = Date.now();
+    const hits = await env.DB
+      .prepare('SELECT COUNT(*) AS c FROM attacks WHERE target_id = ? AND success = 1 AND at > ?')
+      .bind(target.id, now - 864e5).first();
+    const att = accrueTurns(JSON.parse(row.state), now);
+    const def = accrueTurns(JSON.parse(target.state), now);
+    const r = groundAssault(att, def, sent, now, { recentHits: hits.c });
+
+    // Both nations are saved together or not at all.
+    try {
+      await env.DB.batch([
+        env.DB.prepare(SAVE_NATION).bind(JSON.stringify(def), def.land, stats(def).networth, now, target.id, target.version),
+        env.DB.prepare(GUARD),
+        env.DB.prepare(SAVE_NATION).bind(JSON.stringify(att), att.land, stats(att).networth, now, row.id, row.version),
+        env.DB.prepare(GUARD),
+        env.DB.prepare(`INSERT INTO attacks (attacker_id, target_id, at, kind, success, land, attacker_name, target_name)
+                        VALUES (?, ?, ?, 'ground', ?, ?, ?, ?)`)
+          .bind(row.id, target.id, now, r.success ? 1 : 0, r.acres, att.name, def.name),
+        env.DB.prepare("INSERT INTO events (nation_id, at, kind, text) VALUES (?, ?, 'attack', ?)")
+          .bind(target.id, now, r.defenderText),
+        env.DB.prepare("INSERT INTO audit_log (nation_id, action, detail, at) VALUES (?, 'attack', ?, ?)")
+          .bind(row.id, JSON.stringify({ target: def.name, sent, success: r.success, acres: r.acres }), now),
+      ]);
+    } catch (err) {
+      if (String(err).includes('nation changed') || String(err).includes('malformed JSON')) continue; // someone moved first: retry
+      throw err;
+    }
+    return json({ message: r.message,
+                  battle: { success: r.success, offence: r.offence, defence: r.defence, acres: r.acres, lost: r.attLost },
+                  events: await recentEvents(env, row.id), ...view(att, now) });
+  }
+  throw new HttpError(409, 'One of the nations changed while that was processing. Please try again.');
+}
+
 async function doAction(request, env) {
   const action = await readJson(request);
   if (action.type === 'spy') return doSpy(request, env, action);
+  if (action.type === 'assault') return doAssault(request, env, action);
   // Try twice: if another request changed the nation in between, reload and retry once.
   for (let attempt = 0; attempt < 2; attempt++) {
     const row = await loadNation(request, env);

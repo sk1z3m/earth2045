@@ -75,3 +75,19 @@ CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+-- Every attack, for repeat-hit limits and the news feed.
+CREATE TABLE IF NOT EXISTS attacks (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  attacker_id    INTEGER NOT NULL,
+  target_id      INTEGER NOT NULL,
+  at             INTEGER NOT NULL,
+  kind           TEXT    NOT NULL,
+  success        INTEGER NOT NULL,
+  land           INTEGER NOT NULL,
+  attacker_name  TEXT    NOT NULL,
+  target_name    TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_attacks_target ON attacks (target_id, at);
+CREATE INDEX IF NOT EXISTS idx_attacks_at ON attacks (at);

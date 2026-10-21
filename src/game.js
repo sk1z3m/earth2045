@@ -14,6 +14,25 @@ export const CONFIG = {
   logSize: 40,          // report entries kept
 };
 
+// Combat dials (design doc: Combat and attacks).
+export const WAR = {
+  assaultTurns: 2,
+  landShare: 0.07,        // land taken = 7% of target land × min(1.5, off/def) × size × repeat factors
+  maxRatio: 1.5,
+  minSizeRatio: 0.4,      // targets under 40% of your land can't be attacked
+  fullSizeRatio: 0.75,    // at or above 75% of your land: full gains
+  biggerBonusMax: 1.2,    // hitting bigger nations gives up to +20%
+  repeatFactor: 0.7,      // each successful hit on a target within 24 h yields 70% of the last
+  capturedBuildings: 0.3, // share of the buildings on taken land that survive
+  captureTicks: 8,        // taken land arrives after 8 turns
+  lossWin: 0.07, lossLose: 0.14,          // attacker losses (share of units sent)
+  defLossWin: 0.04, defLossLose: 0.02,    // defender losses (share of all units), by attacker's result
+  readinessCost: 8, readinessMax: 100, readinessPenaltyBelow: 50,
+  protectionHours: 72, protectionTurns: 200,
+  swing: 0.05,            // ±5% random swing on the attacker's side
+};
+export const ASSAULT_UNITS = ['infantry', 'tank'];
+
 // The economy's dials, all in one place. Tested against week-long AI simulations.
 export const ECON = {
   taxFactor: 0.5,        // cash a person pays per turn at 100% tax
@@ -154,6 +173,7 @@ export function tick(n, now) {
   n.food += s.foodPerTick;
   n.oil += s.oilPerTick;
   n.techPoints = Math.round((n.techPoints + s.techPerTick) * 100) / 100;
+  n.readiness = Math.min(WAR.readinessMax, (n.readiness ?? WAR.readinessMax) + 1);
 
   if (n.food < 0) {
     n.food = 0;
@@ -176,7 +196,12 @@ export function tick(n, now) {
   for (const q of n.queue) {
     q.ticks -= 1;
     if (q.ticks > 0) { still.push(q); continue; }
-    if (q.kind === 'building') {
+    if (q.kind === 'capture') {
+      n.land += q.count;
+      for (const [k, v] of Object.entries(q.buildings ?? {})) n.buildings[k] += v;
+      const kept = Object.values(q.buildings ?? {}).reduce((t, v) => t + v, 0);
+      log(n, now, `${q.count} acres taken from ${q.from} are now yours${kept ? `, with ${kept} buildings` : ''}.`);
+    } else if (q.kind === 'building') {
       n.buildings[q.type] += q.count;
       log(n, now, `Finished building ${q.count} ${BUILDINGS[q.type].name}.`);
     } else {
@@ -310,6 +335,111 @@ export function applyAction(n, action, now) {
   }
 }
 
+// ---------- ground assaults ----------
+
+export function isProtected(n, now) {
+  if (n.bot || n.protectionEnded) return false;
+  return now - n.createdAt < WAR.protectionHours * 3600e3 && n.ticks < WAR.protectionTurns;
+}
+
+// Size factor: small targets give much less; bigger ones a little more.
+export function sizeFactor(attLand, tgtLand) {
+  const r = tgtLand / attLand;
+  if (r < WAR.minSizeRatio) return 0;
+  if (r < WAR.fullSizeRatio) return r * r;
+  return Math.min(WAR.biggerBonusMax, 1 + Math.max(0, r - 1) * 0.4);
+}
+
+export function readinessFactor(n) {
+  const r = n.readiness ?? WAR.readinessMax;
+  return r >= WAR.readinessPenaltyBelow ? 1 : Math.max(0, 1 - (WAR.readinessPenaltyBelow - r) * 0.01);
+}
+
+export function sentOffence(n, sent) {
+  return Math.round(Object.entries(sent).reduce((t, [k, v]) => t + v * UNITS[k].off, 0) * readinessFactor(n));
+}
+
+// Check an attack can happen. Throws GameError with the reason if not.
+export function checkAssault(att, tgt, sent, now) {
+  if (att.name === tgt.name) throw new GameError("You can't attack yourself.");
+  if (isProtected(tgt, now)) throw new GameError(`${tgt.name} is under new-player protection.`);
+  if (sizeFactor(att.land, tgt.land) === 0) {
+    throw new GameError(`${tgt.name} is less than ${WAR.minSizeRatio * 100}% of your size, too small to attack.`);
+  }
+  let total = 0;
+  for (const [k, v] of Object.entries(sent)) {
+    if (!ASSAULT_UNITS.includes(k)) throw new GameError('Ground assaults use infantry and tanks.');
+    if (!Number.isInteger(v) || v < 0) throw new GameError('Unit counts must be whole numbers.');
+    if (v > att.units[k]) throw new GameError(`You only have ${att.units[k]} ${UNITS[k].name}.`);
+    total += v;
+  }
+  if (!total) throw new GameError('Choose some infantry or tanks to send.');
+  if (sent.tank > 0 && att.oil <= 0) throw new GameError('Tanks need oil to attack, and you have none.');
+  if (att.turns < WAR.assaultTurns) throw new GameError(`An assault takes ${WAR.assaultTurns} turns (you have ${att.turns}).`);
+}
+
+const lose = (units, keys, share) => {
+  const out = {};
+  for (const k of keys) { const c = Math.ceil((units[k] ?? 0) * share - 1e-9); if (c > 0) out[k] = c; } // 1e-9: 0.07 × 400 is 28.000000000000004 in floating point
+  return out;
+};
+const listUnits = obj => Object.entries(obj).map(([k, v]) => `${v.toLocaleString('en-CA')} ${UNITS[k].name}`).join(', ') || 'nothing';
+
+// Resolve a ground assault. Changes both nations. recentHits = successful
+// hits on the target by anyone in the last 24 hours.
+export function groundAssault(att, tgt, sent, now, { recentHits = 0, rng = Math.random } = {}) {
+  sent = Object.fromEntries(Object.entries(sent).filter(([, v]) => v > 0));
+  checkAssault(att, tgt, sent, now);
+
+  const offence = sentOffence(att, sent);
+  const defence = Math.max(1, stats(tgt).defence);
+  const swing = 1 - WAR.swing + rng() * 2 * WAR.swing;
+  const success = offence * swing > defence;
+
+  // Casualties
+  const attLost = lose(sent, Object.keys(sent), success ? WAR.lossWin : WAR.lossLose);
+  const defKeys = Object.keys(UNITS).filter(k => UNITS[k].troop);
+  const defLost = lose(tgt.units, defKeys, success ? WAR.defLossWin : WAR.defLossLose);
+  for (const [k, v] of Object.entries(attLost)) att.units[k] -= v;
+  for (const [k, v] of Object.entries(defLost)) tgt.units[k] -= v;
+
+  let acres = 0, keptBuildings = {};
+  if (success) {
+    const ratio = Math.min(WAR.maxRatio, offence / defence);
+    const size = sizeFactor(att.land, tgt.land);
+    const repeat = WAR.repeatFactor ** recentHits;
+    acres = Math.max(1, Math.floor(WAR.landShare * tgt.land * ratio * size * repeat));
+    acres = Math.min(acres, tgt.land - 1);
+    // Buildings standing on the taken acres go with them (proportionally); 30% survive for the attacker.
+    const share = acres / tgt.land;
+    for (const [k, v] of Object.entries(tgt.buildings)) {
+      const gone = Math.round(v * share);
+      if (!gone) continue;
+      tgt.buildings[k] -= gone;
+      const kept = Math.round(gone * WAR.capturedBuildings);
+      if (kept) keptBuildings[k] = kept;
+    }
+    tgt.land -= acres;
+  }
+
+  // The attacker spends the turns (each runs a normal economy cycle) and readiness.
+  att.readiness = Math.max(0, (att.readiness ?? WAR.readinessMax) - WAR.readinessCost);
+  att.protectionEnded = true;
+  spendTurns(att, WAR.assaultTurns);
+  for (let i = 0; i < WAR.assaultTurns; i++) tick(att, now);
+  // Queued after this action's own ticks, so the land takes a full 8 turns to arrive.
+  if (success) att.queue.push({ kind: 'capture', count: acres, from: tgt.name, buildings: keptBuildings, ticks: WAR.captureTicks });
+
+  const message = success
+    ? `Victory over ${tgt.name}: ${acres} acres taken (arriving in ${WAR.captureTicks} turns). You lost ${listUnits(attLost)}.`
+    : `Your assault on ${tgt.name} was driven back. You lost ${listUnits(attLost)}.`;
+  log(att, now, message);
+  const defenderText = success
+    ? `${att.name} attacked and took ${acres} acres. You lost ${listUnits(defLost)}.`
+    : `You drove back an attack from ${att.name}. You lost ${listUnits(defLost)}.`;
+  return { success, offence, defence, acres, attLost, defLost, message, defenderText };
+}
+
 // ---------- spying ----------
 // Spying looks at another nation. Success depends on your spies per acre
 // compared with theirs: equal = 50%, double = ~74%, half = ~26% (5%–95%).
@@ -359,10 +489,11 @@ export function view(n, now) {
       buildings: n.buildings, units: n.units, queue: n.queue,
       turns: n.turns, nextTurnAt: nextTurnAt(n), ticks: n.ticks, log: n.log,
       intel: n.intel ?? [],
+      readiness: n.readiness ?? WAR.readinessMax, protected: isProtected(n, now),
     },
     stats: stats(n),
     serverTime: now,
   };
 }
 
-export const RULES = { config: CONFIG, econ: ECON, buildings: BUILDINGS, units: UNITS };
+export const RULES = { config: CONFIG, econ: ECON, war: WAR, assaultUnits: ASSAULT_UNITS, buildings: BUILDINGS, units: UNITS };

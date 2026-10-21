@@ -73,6 +73,19 @@ economy for that player only (taxes in, food and oil used, people move in, const
 - Exploring: 1 turn per batch; acres per batch and the price per acre change with your size.
 - Tax: 10–70%, no turn cost. Demolishing returns 25% of the cost, no turn cost.
 
+## Attacks
+
+**Ground assaults** (Attack tab, or the Attack link in the rankings) send infantry and tanks against the
+target's whole defence for 2 turns. You win if your offence, after a random ±5% swing, beats their defence.
+Winning takes about 7% of their land, scaled by how much you won by (up to 1.5×), their size compared with
+yours, and how often they've already been hit in the last 24 hours. The land arrives 8 turns later with 30%
+of its buildings. Winners lose 7% of the units sent and losers 14%; defenders lose 4% when beaten, 2% when
+they hold. Each attack uses 8% readiness, which comes back at 1% a turn.
+
+New human players can't be attacked for 72 hours or 200 turns, whichever ends first (attacking ends it early);
+the rankings show a **Shield** tag. Nations under 40% of your size can't be attacked. AI nations are never
+shielded. All the numbers live in the `WAR` block in `src/game.js`.
+
 ## AI nations
 
 Ten computer-run nations play alongside you and are marked **AI** in the rankings. Every 30 minutes
@@ -114,6 +127,6 @@ npx wrangler d1 execute earth2045 --remote --command "UPDATE users SET is_admin 
 
 ## Known limits of stage 1
 
-- Spying works; attacks, market, research spending and governments are still to come.
+- Spying and ground assaults work; air strikes, raids, sabotage, market, research spending and governments are still to come.
 - No email verification or rate limiting yet, so it's for testing with friends, not a public launch.
 - Rankings show the top 25 nations by land.

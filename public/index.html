@@ -94,6 +94,9 @@
   .report .hint { margin: 8px 0 0; }
   ul.log li.outside { display: flex; flex-wrap: wrap; gap: 0 6px; }
   ul.log li.outside time { flex-basis: 100%; }
+  label.send { display: inline-flex; flex-direction: column; gap: 4px; font-size: 14px; margin-right: 16px; }
+  label.send .ico { margin-right: 4px; }
+  label.send .hint { margin: 0; }
   footer { color: var(--muted); font-size: 13px; padding: 8px 0 24px; display: flex; gap: 12px; flex-wrap: wrap; }
   a { color: var(--accent); }
   footer a { cursor: pointer; }
@@ -170,6 +173,7 @@
             <button data-tab="explore">Explore</button>
             <button data-tab="build">Build</button>
             <button data-tab="train">Military</button>
+            <button data-tab="attack">Attack</button>
             <button data-tab="intel">Intel</button>
             <button data-tab="policy">Policy</button>
           </div>
@@ -207,6 +211,18 @@
               <button data-act="train">Train (1 turn)</button>
               <span class="hint" style="margin:0" id="trainTotal"></span>
             </div>
+          </div>
+
+          <div class="panel" data-panel="attack" hidden>
+            <p class="hint">A ground assault sends infantry and tanks against another nation's whole defence. Costs 2 turns.
+              Win and you take land (it arrives 8 turns later, with some of its buildings). Winners lose 7% of the units sent; losers lose 14%.</p>
+            <p class="hint" id="attackStatus"></p>
+            <div class="row" style="margin-bottom:10px">
+              <input id="attackTarget" type="text" list="nationList" placeholder="Nation name" autocomplete="off">
+            </div>
+            <div class="row" id="attackUnits"></div>
+            <p class="hint" id="attackEstimate" style="margin-top:10px"></p>
+            <button data-act="assault">Attack (2 turns)</button>
           </div>
 
           <div class="panel" data-panel="intel" hidden>
@@ -402,6 +418,8 @@ function actionBody(act) {
     case 'setTax':   return { type: act, rate: parseInt($('taxRange').value, 10) };
     case 'demolish': return { type: act, items: { [$('demoType').value]: parseInt($('demoCount').value, 10) } };
     case 'spy':      return { type: act, target: $('spyTarget').value };
+    case 'assault':  return { type: act, target: $('attackTarget').value, units: Object.fromEntries(
+                       rules.assaultUnits.map(k => [k, parseInt($('send_' + k).value, 10) || 0])) };
   }
 }
 
@@ -410,7 +428,10 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.onclick = async () =>
   try {
     const data = await api('/api/action', actionBody(btn.dataset.act));
     render(data);
-    showMsg($('msg'), data.message + (data.spy ? ` (${Math.round(data.spy.chance * 100)}% chance)` : ''), !data.spy || data.spy.success);
+    const extra = data.spy ? ` (${Math.round(data.spy.chance * 100)}% chance)`
+      : data.battle ? ` Your offence ${fmt(data.battle.offence)} against their defence ${fmt(data.battle.defence)}.` : '';
+    const good = data.spy ? data.spy.success : data.battle ? data.battle.success : true;
+    showMsg($('msg'), data.message + extra, good);
   } catch (e) {
     if (e.status === 401 || e.status === 403) { setToken(null); location.reload(); return; }
     showMsg($('msg'), e.message);
@@ -474,6 +495,7 @@ function render(data) {
       `<td class="num"><input type="number" min="0" placeholder="0" data-type="${k}"></td></tr>`).join('');
 
   wireTotals();
+  renderAttack();
 
   $('taxRange').value = n.tax;
   $('taxValue').textContent = n.tax + '%';
@@ -486,12 +508,15 @@ function render(data) {
     ['Troops', `${fmt(s.troops)} / ${fmt(s.barracksCap)} barracks space`],
     ['Spies', fmt(n.units.spy)],
     ['Upkeep', fmt(s.upkeep) + ' cash a turn'],
+    ['Readiness', `${n.readiness}%`],
+    ['Protection', n.protected ? 'New-player shield on' : 'None'],
   ].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
 
   $('queue').innerHTML = n.queue.length
     ? '<table>' + n.queue.map(q => {
-        const def = q.kind === 'building' ? rules.buildings[q.type] : rules.units[q.type];
-        return `<tr><td><div class="name">${icon(q.type)}${fmt(q.count)} ${def.name}</div></td><td class="num">${q.ticks} turn${q.ticks > 1 ? 's' : ''} left</td></tr>`;
+        const label = q.kind === 'capture' ? `${icon('land')}${fmt(q.count)} acres from ${esc(q.from)}`
+          : `${icon(q.type)}${fmt(q.count)} ${(q.kind === 'building' ? rules.buildings : rules.units)[q.type].name}`;
+        return `<tr><td><div class="name">${label}</div></td><td class="num">${q.ticks} turn${q.ticks > 1 ? 's' : ''} left</td></tr>`;
       }).join('') + '</table>'
     : '<p class="empty">Nothing under construction or in training.</p>';
 
@@ -516,6 +541,42 @@ function render(data) {
   loadRankings();
 }
 
+// Attack tab: unit inputs, status line and an estimate from the latest spy report.
+function renderAttack() {
+  const n = state.nation;
+  const keep = Object.fromEntries(rules.assaultUnits.map(k => [k, $('send_' + k)?.value ?? '']));
+  $('attackUnits').innerHTML = rules.assaultUnits.map(k =>
+    `<label class="send">${icon(k)}${rules.units[k].name}<input id="send_${k}" type="number" min="0" max="${n.units[k]}" placeholder="0" value="${esc(keep[k])}">` +
+    `<span class="hint">of ${fmt(n.units[k])} · <a href="#" data-all="${k}">all</a></span></label>`).join('');
+  document.querySelectorAll('[data-all]').forEach(a => a.onclick = e => {
+    e.preventDefault(); $('send_' + a.dataset.all).value = state.nation.units[a.dataset.all]; renderEstimate();
+  });
+  rules.assaultUnits.forEach(k => $('send_' + k).oninput = renderEstimate);
+  $('attackTarget').oninput = renderEstimate;
+  const w = rules.war;
+  $('attackStatus').textContent = `Readiness ${n.readiness}% (each attack uses ${w.readinessCost}%, back 1% a turn` +
+    `${n.readiness < w.readinessPenaltyBelow ? '; below 50% your offence is weaker' : ''}).` +
+    (n.protected ? ' You have new-player protection; attacking ends it.' : '');
+  renderEstimate();
+}
+
+function renderEstimate() {
+  const n = state.nation;
+  const sent = Object.fromEntries(rules.assaultUnits.map(k => [k, parseInt($('send_' + k).value, 10) || 0]));
+  const factor = n.readiness >= rules.war.readinessPenaltyBelow ? 1 : Math.max(0, 1 - (rules.war.readinessPenaltyBelow - n.readiness) * 0.01);
+  const off = Math.round(Object.entries(sent).reduce((t, [k, v]) => t + v * rules.units[k].off, 0) * factor);
+  const name = $('attackTarget').value.trim().toLowerCase();
+  const report = n.intel.find(r => r.name.toLowerCase() === name);
+  let text = `Offence sent: ${fmt(off)}.`;
+  if (report) {
+    const verdict = off > report.defence * 1.05 ? 'should win' : off < report.defence * 0.95 ? 'would likely lose' : 'is a coin toss';
+    text += ` Your spy report on ${report.name} (${new Date(report.at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}) showed defence ${fmt(report.defence)}, so this ${verdict}. They may have changed since.`;
+  } else if (name) {
+    text += ' Spy on them first to see their defence.';
+  }
+  $('attackEstimate').textContent = text;
+}
+
 function wireTotals() {
   const upd = () => {
     const n = state.nation, s = state.stats;
@@ -538,10 +599,18 @@ async function loadRankings() {
     const me = state.nation.name;
     $('rankings').innerHTML = '<tr><th>#</th><th>Nation</th><th class="num">Land</th><th></th></tr>' +
       rankings.map((r, i) => `<tr${r.name === me ? ' style="font-weight:600"' : ''}>` +
-        `<td>${i + 1}</td><td>${esc(r.name)}${r.ai ? '<span class="tag" title="Computer-controlled nation">AI</span>' : ''}</td>` +
+        `<td>${i + 1}</td><td>${esc(r.name)}${r.ai ? '<span class="tag" title="Computer-controlled nation">AI</span>' : ''}` +
+        `${r.protected ? '<span class="tag" title="New-player protection: can\'t be attacked yet">Shield</span>' : ''}</td>` +
         `<td class="num">${fmt(r.land)}</td>` +
-        `<td class="num">${r.name === me ? '' : `<a href="#" class="spylink" data-name="${esc(r.name)}">Spy</a>`}</td></tr>`).join('');
+        `<td class="num">${r.name === me ? '' : `<a href="#" class="spylink" data-name="${esc(r.name)}">Spy</a>${r.protected ? '' : ` · <a href="#" class="attacklink" data-name="${esc(r.name)}">Attack</a>`}`}</td></tr>`).join('');
     $('nationList').innerHTML = rankings.filter(r => r.name !== me).map(r => `<option value="${esc(r.name)}">`).join('');
+    document.querySelectorAll('.attacklink').forEach(a => a.onclick = e => {
+      e.preventDefault();
+      $('attackTarget').value = a.dataset.name;
+      document.querySelector('#game .tabs button[data-tab="attack"]').click();
+      renderEstimate();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
     document.querySelectorAll('.spylink').forEach(a => a.onclick = e => {
       e.preventDefault();
       $('spyTarget').value = a.dataset.name;
