@@ -1,8 +1,9 @@
 # Earth: 2045 — Stage 1 (single-player core)
 
 A turn-based browser nation builder running on Cloudflare's free plan.
-Stage 1 covers one nation: turns, economy, exploring, building, training units, tax and demolishing.
-Attacks, alliances and the rest come in later stages (see the design doc).
+Stages 1 and 2 are built: turns, economy, exploring, building, training, accounts, spying, ground assaults,
+AI nations that fight, a news feed and an admin page. Alliances, research, governments and more come next
+(see the design doc).
 
 ## What's in this folder
 
@@ -95,6 +96,10 @@ it has earned, using the same actions you do. They are created automatically the
 Each has a play style (Builder, Warlord, Turtle, Farmer or Scientist) and a skill level; both are set in the
 `ROSTER` list in `src/bots.js`. Add a line there to add another AI nation.
 
+**They fight too.** After their normal turns, up to two AI nations per wake-up look for a fight: warlords
+often, builders, scientists and farmers rarely, turtles never. They only target unshielded nations of a
+similar size that haven't already been hit twice that day, spy first, and attack only with a clear advantage.
+
 When running locally, `npm run dev` does not fire the schedule by itself. Run
 `npx wrangler dev --test-scheduled`, then visit `http://localhost:8787/__scheduled` to wake the AI nations.
 
@@ -125,8 +130,8 @@ the flag is set directly in the database:
 npx wrangler d1 execute earth2045 --remote --command "UPDATE users SET is_admin = 1 WHERE username = 'NAME'"
 ```
 
-## Known limits of stage 1
+## Known limits so far
 
 - Spying and ground assaults work; air strikes, raids, sabotage, market, research spending and governments are still to come.
 - No email verification or rate limiting yet, so it's for testing with friends, not a public launch.
-- Rankings show the top 25 nations by land.
+- Rankings show the top 25 nations by land; World news shows the latest 25 battles.

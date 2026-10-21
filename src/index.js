@@ -4,7 +4,7 @@
 // also calls scheduled(), which lets the AI nations take their turns.
 
 import { newNation, accrueTurns, applyAction, spyOp, groundAssault, isProtected, view, stats, GameError, RULES } from './game.js';
-import { ROSTER, newBot, botPlay } from './bots.js';
+import { ROSTER, newBot, botPlay, chooseTarget, attackPlan } from './bots.js';
 import { AUTH, sha256, randomToken, hashPassword, sameHex, checkUsername, checkPassword, checkNationName } from './auth.js';
 import { HttpError, json, readJson, bearer } from './http.js';
 import { handleAdmin, getAnnouncement } from './admin.js';
@@ -43,6 +43,45 @@ async function runBots(env) {
     ).bind(JSON.stringify(n), n.land, stats(n).networth, now, row.id, row.version);
   });
   await env.DB.batch(saves);
+  await botFights(env, Date.now());
+}
+
+// Up to two AI nations look for a fight: spy first, attack only with a clear advantage.
+async function botFights(env, now, maxFights = 2) {
+  const range = await env.DB.prepare('SELECT MIN(land) AS lo, MAX(land) AS hi FROM nations WHERE is_bot = 1').first();
+  const { results: rows } = await env.DB.prepare(
+    'SELECT id, name, state, version, is_bot FROM nations WHERE land BETWEEN ? AND ? ORDER BY RANDOM() LIMIT 60'
+  ).bind(Math.floor(range.lo * 0.75), Math.ceil(range.hi * 1.5)).all();
+  const { results: hitRows } = await env.DB
+    .prepare('SELECT target_id, COUNT(*) AS c FROM attacks WHERE success = 1 AND at > ? GROUP BY target_id')
+    .bind(now - 864e5).all();
+  const hitsToday = Object.fromEntries(hitRows.map(h => [h.target_id, h.c]));
+  const all = rows.map(r => ({ id: r.id, row: r, nation: accrueTurns(JSON.parse(r.state), now) }));
+
+  let fights = 0;
+  for (const me of all.filter(x => x.row.is_bot === 1)) {
+    if (fights >= maxFights) break;
+    const pick = chooseTarget(me.nation, all.filter(x => x !== me).map(x => ({ id: x.id, nation: x.nation })), hitsToday, now);
+    if (!pick) continue;
+    fights++;
+    const tgt = all.find(x => x.id === pick.id);
+    const spy = spyOp(me.nation, tgt.nation, now);
+    const plan = spy.success ? attackPlan(me.nation, me.nation.intel[0]) : null;
+    const r = plan ? groundAssault(me.nation, tgt.nation, plan, now, { recentHits: hitsToday[tgt.id] ?? 0 }) : null;
+
+    const stmts = r
+      ? assaultStatements(env, me.row, me.nation, tgt.row, tgt.nation, r, now)
+      : [env.DB.prepare(SAVE_NATION).bind(JSON.stringify(me.nation), me.nation.land, stats(me.nation).networth, now, me.id, me.row.version),
+         env.DB.prepare(GUARD)];
+    if (!spy.success) {
+      stmts.push(env.DB.prepare("INSERT INTO events (nation_id, at, kind, text) VALUES (?, ?, 'spy', ?)")
+        .bind(tgt.id, now, `You caught ${spy.lost} ${spy.lost === 1 ? 'spy' : 'spies'} from ${me.nation.name}.`));
+    }
+    try { await env.DB.batch(stmts); }
+    catch (err) { if (String(err).includes('malformed JSON')) break; throw err; } // a nation changed under us: stop this run
+    me.row.version++;
+    if (r) { tgt.row.version++; if (r.success) hitsToday[tgt.id] = (hitsToday[tgt.id] ?? 0) + 1; }
+  }
 }
 
 async function seedBots(env, now) {
@@ -75,6 +114,13 @@ async function route(request, env, url) {
   }
 
   if (pathname === '/api/action' && method === 'POST') return doAction(request, env);
+
+  if (pathname === '/api/news' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT attacker_name, target_name, success, land, at FROM attacks ORDER BY at DESC LIMIT 25'
+    ).all();
+    return json({ news: results });
+  }
 
   if (pathname === '/api/rankings' && method === 'GET') {
     const { results } = await env.DB.prepare(
@@ -240,6 +286,22 @@ async function doSpy(request, env, action) {
 // Fails the whole batch (so nothing is saved) unless the statement before it changed exactly one row.
 const GUARD = "SELECT CASE WHEN changes() = 1 THEN 1 ELSE json('nation changed') END";
 
+// Statements that save an assault: both nations (all or nothing), the attack record, the defender's event, the audit line.
+function assaultStatements(env, attRow, att, defRow, def, r, now) {
+  return [
+    env.DB.prepare(SAVE_NATION).bind(JSON.stringify(def), def.land, stats(def).networth, now, defRow.id, defRow.version),
+    env.DB.prepare(GUARD),
+    env.DB.prepare(SAVE_NATION).bind(JSON.stringify(att), att.land, stats(att).networth, now, attRow.id, attRow.version),
+    env.DB.prepare(GUARD),
+    env.DB.prepare(`INSERT INTO attacks (attacker_id, target_id, at, kind, success, land, attacker_name, target_name)
+                    VALUES (?, ?, ?, 'ground', ?, ?, ?, ?)`)
+      .bind(attRow.id, defRow.id, now, r.success ? 1 : 0, r.acres, att.name, def.name),
+    env.DB.prepare("INSERT INTO events (nation_id, at, kind, text) VALUES (?, ?, 'attack', ?)").bind(defRow.id, now, r.defenderText),
+    env.DB.prepare("INSERT INTO audit_log (nation_id, action, detail, at) VALUES (?, 'attack', ?, ?)")
+      .bind(attRow.id, JSON.stringify({ target: def.name, success: r.success, acres: r.acres }), now),
+  ];
+}
+
 async function doAssault(request, env, action) {
   const targetName = String(action.target ?? '').trim();
   if (!targetName) throw new HttpError(400, 'Choose a nation to attack.');
@@ -261,19 +323,7 @@ async function doAssault(request, env, action) {
 
     // Both nations are saved together or not at all.
     try {
-      await env.DB.batch([
-        env.DB.prepare(SAVE_NATION).bind(JSON.stringify(def), def.land, stats(def).networth, now, target.id, target.version),
-        env.DB.prepare(GUARD),
-        env.DB.prepare(SAVE_NATION).bind(JSON.stringify(att), att.land, stats(att).networth, now, row.id, row.version),
-        env.DB.prepare(GUARD),
-        env.DB.prepare(`INSERT INTO attacks (attacker_id, target_id, at, kind, success, land, attacker_name, target_name)
-                        VALUES (?, ?, ?, 'ground', ?, ?, ?, ?)`)
-          .bind(row.id, target.id, now, r.success ? 1 : 0, r.acres, att.name, def.name),
-        env.DB.prepare("INSERT INTO events (nation_id, at, kind, text) VALUES (?, ?, 'attack', ?)")
-          .bind(target.id, now, r.defenderText),
-        env.DB.prepare("INSERT INTO audit_log (nation_id, action, detail, at) VALUES (?, 'attack', ?, ?)")
-          .bind(row.id, JSON.stringify({ target: def.name, sent, success: r.success, acres: r.acres }), now),
-      ]);
+      await env.DB.batch(assaultStatements(env, row, att, target, def, r, now));
     } catch (err) {
       if (String(err).includes('nation changed') || String(err).includes('malformed JSON')) continue; // someone moved first: retry
       throw err;

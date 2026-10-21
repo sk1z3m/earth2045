@@ -3,34 +3,35 @@
 // them every 30 minutes; they spend their turns through the same actions a
 // player uses, so they can never break the rules.
 
-import { applyAction, newNation, stats, BUILDINGS, UNITS, GameError } from './game.js';
+import { applyAction, newNation, stats, isProtected, sizeFactor, sentOffence, WAR, BUILDINGS, UNITS, GameError } from './game.js';
 
 // tax: % they set · invest: share of cash spent on buildings · army: share spent on units
 // density: troops per acre they aim to keep
+// aggression: chance per wake-up of looking for a fight · margin: how much stronger they want to be
 // build / units: how they split what they buy
 export const STYLES = {
   builder: {
-    label: 'Builder', density: 0.6, tax: 35, invest: 0.8, army: 0.15,
+    label: 'Builder', aggression: 0.1, margin: 1.5, density: 0.6, tax: 35, invest: 0.8, army: 0.15,
     build: { housing: 3, industry: 4, farm: 1, oilRig: 1, barracks: 1, yard: 1 },
-    units: { infantry: 3, artillery: 1 },
+    units: { infantry: 3, artillery: 1, spy: 1 },
   },
   warlord: {
-    label: 'Warlord', density: 2, tax: 45, invest: 0.6, army: 0.45,
+    label: 'Warlord', aggression: 0.5, margin: 1.15, density: 2, tax: 45, invest: 0.6, army: 0.45,
     build: { housing: 2, industry: 3, farm: 1, oilRig: 2, barracks: 3 },
-    units: { infantry: 2, tank: 3, jet: 1 },
+    units: { infantry: 2, tank: 3, jet: 1, spy: 1 },
   },
   turtle: {
-    label: 'Turtle', density: 1.5, tax: 35, invest: 0.65, army: 0.35,
+    label: 'Turtle', aggression: 0, margin: 9, density: 1.5, tax: 35, invest: 0.65, army: 0.35,
     build: { housing: 2, industry: 3, farm: 1, oilRig: 1, barracks: 2, grid: 2 },
     units: { infantry: 2, artillery: 3 },
   },
   farmer: {
-    label: 'Farmer', density: 0.6, tax: 30, invest: 0.7, army: 0.15,
+    label: 'Farmer', aggression: 0.05, margin: 1.6, density: 0.6, tax: 30, invest: 0.7, army: 0.15,
     build: { housing: 3, industry: 3, farm: 3, oilRig: 2, barracks: 1 },
-    units: { infantry: 3, artillery: 1 },
+    units: { infantry: 3, artillery: 1, spy: 1 },
   },
   scientist: {
-    label: 'Scientist', density: 0.8, tax: 40, invest: 0.7, army: 0.2,
+    label: 'Scientist', aggression: 0.1, margin: 1.5, density: 0.8, tax: 40, invest: 0.7, army: 0.2,
     build: { housing: 2, industry: 3, farm: 1, oilRig: 1, barracks: 1, lab: 3 },
     units: { infantry: 2, artillery: 1, spy: 1 },
   },
@@ -149,4 +150,35 @@ function split(weights, count) {
   const top = Object.entries(weights).sort((a, b) => b[1] - a[1])[0][0];
   out[top] += count - given;
   return out;
+}
+
+// ---------- fighting ----------
+
+const AI_ATTACK = { minReadiness: 60, turnsNeeded: 3, maxHitsToday: 2 }; // 3 = 1 spy + 2 assault
+
+// Should this AI look for a fight this wake-up, and at whom? candidates are
+// { id, nation } for every other nation; hitsToday maps target id -> successful hits in 24 h.
+export function chooseTarget(bot, candidates, hitsToday, now, rng = Math.random) {
+  const style = STYLES[bot.bot?.style] ?? STYLES.builder;
+  if (!style.aggression || rng() >= style.aggression) return null;
+  if ((bot.readiness ?? 100) < AI_ATTACK.minReadiness || bot.turns < AI_ATTACK.turnsNeeded || bot.units.spy < 1) return null;
+  if (sentOffence(bot, { infantry: bot.units.infantry, tank: bot.units.tank }) <= 0) return null;
+  const eligible = candidates.filter(c => {
+    const r = c.nation.land / bot.land;
+    return c.nation.name !== bot.name && !isProtected(c.nation, now)
+      && r >= WAR.fullSizeRatio && r <= 1.5 && sizeFactor(bot.land, c.nation.land) > 0
+      && (hitsToday[c.id] ?? 0) < AI_ATTACK.maxHitsToday;
+  });
+  if (!eligible.length) return null;
+  // Prefer bigger targets (more land per hit), with some randomness.
+  eligible.sort((a, b) => b.nation.land - a.nation.land);
+  return eligible[Math.floor(rng() * Math.min(3, eligible.length))];
+}
+
+// After a successful spy report: attack only with a clear advantage, sending all infantry and tanks.
+export function attackPlan(bot, report) {
+  const style = STYLES[bot.bot?.style] ?? STYLES.builder;
+  const sent = { infantry: bot.units.infantry, tank: bot.oil > 0 ? bot.units.tank : 0 };
+  const off = sentOffence(bot, sent);
+  return off > report.defence * style.margin ? sent : null;
 }

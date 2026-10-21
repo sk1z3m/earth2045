@@ -97,6 +97,10 @@
   label.send { display: inline-flex; flex-direction: column; gap: 4px; font-size: 14px; margin-right: 16px; }
   label.send .ico { margin-right: 4px; }
   label.send .hint { margin: 0; }
+  .since { background: var(--soft); border-radius: 6px; padding: 8px 10px; margin: 0 0 8px; font-size: 14px; }
+  .since[hidden] { display: none; }
+  ul.log li.new { font-weight: 500; }
+  #news b { font-weight: 600; }
   footer { color: var(--muted); font-size: 13px; padding: 8px 0 24px; display: flex; gap: 12px; flex-wrap: wrap; }
   a { color: var(--accent); }
   footer a { cursor: pointer; }
@@ -258,6 +262,7 @@
 
         <div class="card">
           <h2>Report</h2>
+          <p class="since" id="since" hidden></p>
           <ul class="log" id="log"></ul>
         </div>
       </div>
@@ -274,6 +279,10 @@
         <div class="card">
           <h2>Rankings</h2>
           <table id="rankings"></table>
+        </div>
+        <div class="card">
+          <h2>World news</h2>
+          <ul class="log" id="news"></ul>
         </div>
       </div>
     </div>
@@ -312,6 +321,11 @@ const ICONS = {
 const icon = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
 
 const KEY = 'e2045.session';        // session token from signing in
+const SEEN_KEY = 'e2045.lastSeen';  // when this browser last looked, for "since your last visit"
+let lastSeen = (() => { try { return Number(localStorage.getItem(SEEN_KEY)) || Date.now(); } catch { return Date.now(); } })();
+const markSeen = () => { try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch {} };
+addEventListener('pagehide', markSeen);
+document.addEventListener('visibilitychange', () => { if (document.hidden) markSeen(); });
 const LEGACY_KEY = 'e2045.token';   // pre-accounts nation key, kept until claimed
 let token = null, state = null, rules = null, serverOffset = 0;
 
@@ -524,8 +538,17 @@ function render(data) {
   const when = at => new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' });
   const entries = [...n.log.map(e => ({ ...e, outside: false })), ...(data.events ?? []).map(e => ({ ...e, outside: true }))]
     .sort((a, b) => b.at - a.at).slice(0, 40);
-  $('log').innerHTML = entries.map(e =>
-    `<li${e.outside ? ' class="outside"' : ''}><time>${when(e.at)}</time>${e.outside ? icon('spy') : ''}${esc(e.text)}</li>`).join('');
+  const fresh = (data.events ?? []).filter(e => e.at > lastSeen);
+  const attacks = fresh.filter(e => /attack/i.test(e.text)).length, caught = fresh.length - attacks;
+  $('since').hidden = !fresh.length;
+  $('since').textContent = `Since your last visit: ${[
+    attacks && `${attacks} attack${attacks > 1 ? 's' : ''} on you`, caught && `${caught} spy attempt${caught > 1 ? 's' : ''} caught`,
+  ].filter(Boolean).join(', ')}.`;
+  $('log').innerHTML = entries.map(e => {
+    const isNew = e.outside && e.at > lastSeen;
+    return `<li class="${e.outside ? 'outside' : ''}${isNew ? ' new' : ''}"><time>${when(e.at)}${isNew ? '<span class="tag">New</span>' : ''}</time>` +
+      `${e.outside ? icon(/attack/i.test(e.text) ? 'tank' : 'spy') : ''}${esc(e.text)}</li>`;
+  }).join('');
 
   $('intel').innerHTML = n.intel.length ? n.intel.map(r => `
     <div class="report">
@@ -593,7 +616,22 @@ function wireTotals() {
   upd();
 }
 
+const ago = at => {
+  const m = Math.round((Date.now() - at) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
+async function loadNews() {
+  try {
+    const { news } = await api('/api/news');
+    $('news').innerHTML = news.length ? news.map(a => `<li><time>${ago(a.at)}</time>` + (a.success
+      ? `<b>${esc(a.attacker_name)}</b> took ${fmt(a.land)} acres from <b>${esc(a.target_name)}</b>.`
+      : `<b>${esc(a.target_name)}</b> drove back an attack by <b>${esc(a.attacker_name)}</b>.`) + '</li>').join('')
+      : '<li class="empty">No battles yet.</li>';
+  } catch {}
+}
+
 async function loadRankings() {
+  loadNews();
   try {
     const { rankings } = await api('/api/rankings');
     const me = state.nation.name;
