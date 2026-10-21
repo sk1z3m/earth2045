@@ -1,10 +1,11 @@
-// Earth: 2045 — Cloudflare Worker (stage 1).
+// Earth: 2045 — Cloudflare Worker.
 // Serves the API under /api/*. Everything else is a static file from /public,
 // which Cloudflare serves before this code runs. Every 30 minutes Cloudflare
 // also calls scheduled(), which lets the AI nations take their turns.
 
 import { newNation, accrueTurns, applyAction, view, stats, GameError, RULES } from './game.js';
 import { ROSTER, newBot, botPlay } from './bots.js';
+import { AUTH, sha256, randomToken, hashPassword, sameHex, checkUsername, checkPassword, checkNationName } from './auth.js';
 
 export default {
   async fetch(request, env) {
@@ -62,12 +63,16 @@ async function route(request, env, url) {
 
   if (pathname === '/api/rules' && method === 'GET') return json(RULES);
 
-  if (pathname === '/api/nation' && method === 'POST') return createNation(request, env);
+  if (pathname === '/api/register' && method === 'POST') return register(request, env);
+  if (pathname === '/api/login' && method === 'POST') return login(request, env);
+  if (pathname === '/api/logout' && method === 'POST') return logout(request, env);
+  if (pathname === '/api/legacy' && method === 'POST') return legacyInfo(request, env);
+
   if (pathname === '/api/nation' && method === 'GET') {
     const row = await loadNation(request, env);
     const now = Date.now();
     const n = accrueTurns(JSON.parse(row.state), now); // shown, not saved: reads cost nothing
-    return json(view(n, now));
+    return json({ account: { username: row.username }, ...view(n, now) });
   }
 
   if (pathname === '/api/action' && method === 'POST') return doAction(request, env);
@@ -82,26 +87,107 @@ async function route(request, env, url) {
   throw new HttpError(404, 'Not found.');
 }
 
-async function createNation(request, env) {
+// ---------- accounts ----------
+
+const USER_ID = '(SELECT id FROM users WHERE username = ?)';
+const bad = r => { if (r.error) throw new HttpError(400, r.error); return r; };
+
+// Create an account plus either a new nation or, with legacyKey, the nation
+// this browser founded before accounts existed.
+async function register(request, env) {
   const body = await readJson(request);
-  const name = String(body.name ?? '').trim().replace(/\s+/g, ' ');
-  if (!/^[A-Za-z0-9 '\-]{3,24}$/.test(name)) {
-    throw new HttpError(400, 'Name must be 3–24 letters, numbers, spaces, apostrophes or hyphens.');
-  }
+  const { name: username } = bad(checkUsername(body.username));
+  const { pw } = bad(checkPassword(body.password));
   const now = Date.now();
-  const n = newNation(name, now);
-  const token = crypto.randomUUID() + crypto.randomUUID();
-  const s = stats(n);
+
+  let legacy = null, nation = null;
+  if (body.legacyKey) {
+    legacy = await env.DB
+      .prepare('SELECT id, name FROM nations WHERE token_hash = ? AND user_id IS NULL AND is_bot = 0')
+      .bind(await sha256(String(body.legacyKey))).first();
+    if (!legacy) throw new HttpError(400, 'That nation can no longer be claimed. Found a new one instead.');
+  } else {
+    const { name } = bad(checkNationName(body.nation));
+    if (await env.DB.prepare('SELECT 1 FROM nations WHERE name = ?').bind(name).first()) {
+      throw new HttpError(409, 'That nation name is taken.');
+    }
+    nation = newNation(name, now);
+  }
+  if (await env.DB.prepare('SELECT 1 FROM users WHERE username = ?').bind(username).first()) {
+    throw new HttpError(409, 'That username is taken.');
+  }
+
+  const pass = await hashPassword(pw);
+  const addUser = env.DB
+    .prepare('INSERT INTO users (username, pass_hash, salt, iterations, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(username, pass.hash, pass.salt, pass.iterations, now);
+  const attach = legacy
+    ? env.DB.prepare(`UPDATE nations SET user_id = ${USER_ID}, token_hash = ? WHERE id = ? AND user_id IS NULL`)
+        .bind(username, 'user:' + crypto.randomUUID(), legacy.id)
+    : env.DB.prepare(
+        `INSERT INTO nations (name, token_hash, state, land, networth, version, user_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 1, ${USER_ID}, ?, ?)`
+      ).bind(nation.name, 'user:' + crypto.randomUUID(), JSON.stringify(nation), nation.land,
+             stats(nation).networth, username, now, now);
   try {
-    await env.DB.prepare(
-      `INSERT INTO nations (name, token_hash, state, land, networth, version, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-    ).bind(name, await sha256(token), JSON.stringify(n), n.land, s.networth, now, now).run();
+    await env.DB.batch([addUser, attach]); // all or nothing
   } catch (err) {
-    if (String(err).includes('UNIQUE')) throw new HttpError(409, 'That name is taken.');
+    if (String(err).includes('UNIQUE')) throw new HttpError(409, 'That username or nation name was just taken. Try another.');
     throw err;
   }
-  return json({ token, ...view(n, now) }, 201);
+  return json({ token: await startSession(env, username, now) }, 201);
+}
+
+async function login(request, env) {
+  const body = await readJson(request);
+  const username = String(body.username ?? '').trim();
+  const now = Date.now();
+  const user = await env.DB
+    .prepare('SELECT id, pass_hash, salt, iterations, failed_logins, locked_until FROM users WHERE username = ?')
+    .bind(username).first();
+  if (user && user.locked_until > now) {
+    const mins = Math.ceil((user.locked_until - now) / 60000);
+    throw new HttpError(429, `Too many wrong passwords. Try again in ${mins} minute${mins > 1 ? 's' : ''}.`);
+  }
+  // Hash even for unknown usernames, so response time doesn't reveal which names exist.
+  const check = await hashPassword(String(body.password ?? ''), user?.salt ?? '00'.repeat(16), user?.iterations ?? AUTH.iterations);
+  if (!user || !sameHex(check.hash, user.pass_hash)) {
+    if (user) {
+      const failures = user.failed_logins + 1;
+      const locked = failures >= AUTH.maxFailures;
+      await env.DB.prepare('UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?')
+        .bind(locked ? 0 : failures, locked ? now + AUTH.lockMinutes * 60000 : 0, user.id).run();
+    }
+    throw new HttpError(401, 'Wrong username or password.');
+  }
+  if (user.failed_logins) {
+    await env.DB.prepare('UPDATE users SET failed_logins = 0 WHERE id = ?').bind(user.id).run();
+  }
+  await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now).run();
+  return json({ token: await startSession(env, username, now) });
+}
+
+async function logout(request, env) {
+  const token = bearer(request);
+  if (token) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
+  return json({ ok: true });
+}
+
+// Tells a browser holding a pre-accounts key which nation it can claim.
+async function legacyInfo(request, env) {
+  const body = await readJson(request);
+  const row = await env.DB
+    .prepare('SELECT name, land FROM nations WHERE token_hash = ? AND user_id IS NULL AND is_bot = 0')
+    .bind(await sha256(String(body.key ?? ''))).first();
+  if (!row) throw new HttpError(404, 'No nation to claim.');
+  return json(row);
+}
+
+async function startSession(env, username, now) {
+  const token = randomToken();
+  await env.DB.prepare(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ${USER_ID}, ?, ?)`)
+    .bind(await sha256(token), username, now, now + AUTH.sessionDays * 864e5).run();
+  return token;
 }
 
 async function doAction(request, env) {
@@ -127,14 +213,20 @@ async function doAction(request, env) {
   throw new HttpError(409, 'Your nation changed while that was processing. Please try again.');
 }
 
-async function loadNation(request, env) {
+function bearer(request) {
   const auth = request.headers.get('Authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!token) throw new HttpError(401, 'Not signed in.');
-  const row = await env.DB
-    .prepare('SELECT id, state, version FROM nations WHERE token_hash = ?')
-    .bind(await sha256(token)).first();
-  if (!row) throw new HttpError(401, 'Nation not found. Create a new one.');
+  return auth.startsWith('Bearer ') ? auth.slice(7) : '';
+}
+
+async function loadNation(request, env) {
+  const token = bearer(request);
+  if (!token) throw new HttpError(401, 'Please sign in.');
+  const row = await env.DB.prepare(
+    `SELECT n.id, n.state, n.version, u.username
+       FROM sessions s JOIN users u ON u.id = s.user_id JOIN nations n ON n.user_id = u.id
+      WHERE s.token_hash = ? AND s.expires_at > ?`
+  ).bind(await sha256(token), Date.now()).first();
+  if (!row) throw new HttpError(401, 'Please sign in.');
   return row;
 }
 
@@ -142,11 +234,6 @@ async function readJson(request) {
   const text = await request.text();
   if (text.length > 10_000) throw new HttpError(413, 'Request too large.');
   try { return JSON.parse(text || '{}'); } catch { throw new HttpError(400, 'Bad request.'); }
-}
-
-async function sha256(text) {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function json(data, status = 200) {

@@ -11,10 +11,11 @@ Attacks, alliances and the rest come in later stages (see the design doc).
 | `src/game.js` | All game rules and numbers. Change balance here. |
 | `src/index.js` | The Cloudflare Worker: the API the page talks to, saving to the database, and the AI schedule. |
 | `src/bots.js` | The AI nations: their names, play styles and decision-making. |
+| `src/auth.js` | Accounts: password hashing, sign-up rules and sign-in limits. |
 | `public/index.html` | The game page players see. |
 | `schema.sql` | Creates the database tables. |
 | `wrangler.toml` | Cloudflare settings. |
-| `test/game.test.js` | Automatic checks for the rules. |
+| `test/` | Automatic checks for the rules, the AI nations and accounts. |
 
 ## 1. One-time setup on your computer
 
@@ -81,11 +82,17 @@ Each has a play style (Builder, Warlord, Turtle, Farmer or Scientist) and a skil
 When running locally, `npm run dev` does not fire the schedule by itself. Run
 `npx wrangler dev --test-scheduled`, then visit `http://localhost:8787/__scheduled` to wake the AI nations.
 
-## Signing in
+## Accounts
 
-There are no passwords yet. Founding a nation gives the browser a secret key, stored on that device.
-Use **Back up your key** at the bottom of the page to copy it; **Enter your key** on the start page
-signs in on another device. Email sign-in arrives in stage 2.
+Players sign up with a nation name, a username and a password (at least 8 characters), and can then sign in
+from any device. Passwords are stored only as salted PBKDF2 hashes. Five wrong passwords in a row lock the
+account for 15 minutes. Sessions last 30 days; **Sign out** ends the one on that device.
+
+There's no email yet, so there's no password reset. Email sign-in and recovery need a domain you control
+(a `workers.dev` address can't send mail), so they can come once the game has its own domain.
+
+Nations founded before accounts existed are kept: the first time that browser opens the game, it offers
+to create an account and attach the old nation to it.
 
 ## Known limits of stage 1
 

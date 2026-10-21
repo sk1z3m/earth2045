@@ -41,7 +41,7 @@
   th { color: var(--muted); font-weight: 500; font-size: 13px; }
   td.num, th.num { text-align: right; }
   td .effect { display: block; color: var(--muted); font-size: 12.5px; }
-  input[type=number], input[type=text], select {
+  input[type=number], input[type=text], input[type=password], select {
     font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
     border-radius: 6px; padding: 6px 8px; width: 90px; }
   input[type=text] { width: 240px; }
@@ -55,7 +55,7 @@
   .tabs button { background: none; color: var(--muted); border: none; border-bottom: 2px solid transparent;
                  border-radius: 0; padding: 6px 10px; white-space: nowrap; }
   .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
-  .panel[hidden] { display: none; }
+  .panel[hidden], .tabs[hidden] { display: none; }
   .scroll { overflow-x: auto; }
   @media (max-width: 520px) {
     .wrap { padding: 12px; }
@@ -73,6 +73,9 @@
   .kv span:nth-child(odd) { color: var(--muted); }
   .empty { color: var(--muted); font-size: 14px; }
   .start { max-width: 520px; margin: 48px auto; }
+  .authpanel label { display: block; margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+  .authpanel label input { display: block; width: 100%; margin-top: 4px; }
+  .authpanel label .hint { display: block; margin: 4px 0 0; }
   .ico { width: 18px; height: 18px; flex: none; color: var(--accent); vertical-align: -3px; }
   .stat .label { display: flex; align-items: center; gap: 6px; }
   td .name { display: flex; align-items: center; gap: 10px; }
@@ -110,12 +113,33 @@
       <g fill="var(--card)" opacity=".7"><rect x="169" y="98" width="2" height="2"/><rect x="173" y="106" width="2" height="2"/><rect x="201" y="88" width="2" height="2"/><rect x="201" y="100" width="2" height="2"/><rect x="230" y="94" width="2" height="2"/><rect x="235" y="104" width="2" height="2"/><rect x="267" y="84" width="2" height="2"/><rect x="270" y="96" width="2" height="2"/><rect x="298" y="96" width="2" height="2"/><rect x="335" y="104" width="2" height="2"/></g>
     </svg>
     <h1 class="brand"><svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="16" cy="16" r="9"/><ellipse cx="16" cy="16" rx="4" ry="9"/><path d="M7 16h18"/><path d="M3.5 21.5c3.5 3 12 1.5 19-3.5s10-10.5 6.5-13" stroke-width="1.4" opacity=".7"/><circle cx="27.2" cy="6.2" r="1.6" fill="currentColor" stroke="none"/></svg>Earth: 2045</h1>
-    <p>Found your nation. It starts with 250 acres, a small army and 100 turns. You earn one more turn every 15 minutes.</p>
-    <div class="row">
-      <input id="newName" type="text" maxlength="24" placeholder="Nation name" autocomplete="off">
-      <button id="createBtn">Found nation</button>
+    <div id="authTabs" class="tabs" role="tablist">
+      <button data-auth="found" class="on">Found a nation</button>
+      <button data-auth="signin">Sign in</button>
     </div>
-    <p class="hint" style="margin-top:12px">Already have a nation on another device? <a href="#" id="useKey">Enter your key</a>.</p>
+
+    <form class="authpanel" data-authpanel="found">
+      <p>Your nation starts with 250 acres, a small army and 100 turns. You earn one more turn every 15 minutes.</p>
+      <label>Nation name<input id="regNation" type="text" maxlength="24" autocomplete="off" required></label>
+      <label>Username<input id="regUser" type="text" maxlength="20" autocomplete="username" required></label>
+      <label>Password<input id="regPass" type="password" minlength="8" autocomplete="new-password" required><span class="hint">At least 8 characters. There's no password reset yet, so keep it somewhere safe.</span></label>
+      <button type="submit">Found nation</button>
+    </form>
+
+    <form class="authpanel" data-authpanel="signin" hidden>
+      <label>Username<input id="loginUser" type="text" maxlength="20" autocomplete="username" required></label>
+      <label>Password<input id="loginPass" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Sign in</button>
+    </form>
+
+    <form class="authpanel" data-authpanel="claim" hidden>
+      <p>Earth: 2045 now has accounts. Create one to keep <b id="claimName"></b> and sign in from any device.</p>
+      <label>Username<input id="claimUser" type="text" maxlength="20" autocomplete="username" required></label>
+      <label>Password<input id="claimPass" type="password" minlength="8" autocomplete="new-password" required><span class="hint">At least 8 characters. There's no password reset yet, so keep it somewhere safe.</span></label>
+      <button type="submit">Keep my nation</button>
+      <p class="hint" style="margin-top:12px"><a href="#" id="claimSkip">Start a new nation instead</a></p>
+    </form>
+
     <p id="startMsg" class="msg"></p>
   </section>
 
@@ -217,7 +241,7 @@
     </div>
 
     <footer>
-      <a id="showKey">Back up your key</a>
+      <span>Signed in as <b id="who"></b></span>
       <a id="signOut">Sign out</a>
     </footer>
   </section>
@@ -248,7 +272,8 @@ const ICONS = {
 };
 const icon = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
 
-const KEY = 'e2045.token';
+const KEY = 'e2045.session';        // session token from signing in
+const LEGACY_KEY = 'e2045.token';   // pre-accounts nation key, kept until claimed
 let token = null, state = null, rules = null, serverOffset = 0;
 
 const $ = id => document.getElementById(id);
@@ -258,6 +283,8 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 
 function getToken() { try { return localStorage.getItem(KEY); } catch { return null; } }
 function setToken(t) { token = t; try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
+function getLegacy() { try { return localStorage.getItem(LEGACY_KEY); } catch { return null; } }
+function dropLegacy() { try { localStorage.removeItem(LEGACY_KEY); } catch {} }
 
 async function api(path, body) {
   const res = await fetch(path, {
@@ -273,32 +300,61 @@ async function api(path, body) {
 function showMsg(el, text, ok) { el.textContent = text || ''; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
 
 // ---------- start screen ----------
-$('createBtn').onclick = async () => {
-  try {
-    const data = await api('/api/nation', { name: $('newName').value });
-    setToken(data.token);
-    enterGame(data);
-  } catch (e) { showMsg($('startMsg'), e.message); }
-};
-$('newName').addEventListener('keydown', e => { if (e.key === 'Enter') $('createBtn').click(); });
-$('useKey').onclick = async e => {
+function showAuth(mode) {
+  document.querySelectorAll('#authTabs button').forEach(b => b.classList.toggle('on', b.dataset.auth === mode));
+  $('authTabs').hidden = mode === 'claim';
+  document.querySelectorAll('.authpanel').forEach(f => f.hidden = f.dataset.authpanel !== mode);
+  showMsg($('startMsg'), '');
+  const first = document.querySelector(`.authpanel[data-authpanel="${mode}"] input`);
+  if (first) first.focus();
+}
+document.querySelectorAll('#authTabs button').forEach(b => b.onclick = () => showAuth(b.dataset.auth));
+
+async function signedIn(tokenValue) {
+  setToken(tokenValue);
+  enterGame(await api('/api/nation'));
+}
+
+function onSubmit(mode, handler) {
+  const form = document.querySelector(`.authpanel[data-authpanel="${mode}"]`);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try { await handler(); }
+    catch (err) { showMsg($('startMsg'), err.message); }
+    finally { btn.disabled = false; }
+  };
+}
+
+onSubmit('found', async () => {
+  const data = await api('/api/register', { nation: $('regNation').value, username: $('regUser').value, password: $('regPass').value });
+  await signedIn(data.token);
+});
+onSubmit('signin', async () => {
+  const data = await api('/api/login', { username: $('loginUser').value, password: $('loginPass').value });
+  await signedIn(data.token);
+});
+onSubmit('claim', async () => {
+  const data = await api('/api/register', { legacyKey: getLegacy(), username: $('claimUser').value, password: $('claimPass').value });
+  dropLegacy();
+  await signedIn(data.token);
+});
+$('claimSkip').onclick = e => {
   e.preventDefault();
-  const k = prompt('Paste your nation key:');
-  if (!k) return;
-  setToken(k.trim());
-  try { enterGame(await api('/api/nation')); }
-  catch (err) { setToken(null); showMsg($('startMsg'), err.message); }
+  if (!confirm('Start over? Your old nation will be left behind.')) return;
+  dropLegacy();
+  showAuth('found');
 };
 
 // ---------- game ----------
-$('showKey').onclick = () => prompt('Your nation key. Keep it private; it is the only way to sign in on another device.', token);
-$('signOut').onclick = () => {
-  if (!confirm('Sign out? You will need your key to get back in.')) return;
+$('signOut').onclick = async () => {
+  try { await api('/api/logout', {}); } catch {}
   setToken(null); location.reload();
 };
 
-document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+document.querySelectorAll('#game .tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#game .tabs button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('.panel').forEach(p => p.hidden = p.dataset.panel !== b.dataset.tab);
   showMsg($('msg'), '');
 });
@@ -349,6 +405,7 @@ function render(data) {
   const n = data.nation, s = data.stats;
 
   $('nationName').textContent = n.name;
+  if (data.account) $('who').textContent = data.account.username;
   $('turns').textContent = n.turns;
   tickClock();
 
@@ -470,7 +527,17 @@ setInterval(tickClock, 1000);
     catch (e) { if (e.status === 401) setToken(null); }
   }
   $('start').hidden = false;
-  $('newName').focus();
+  // A nation founded before accounts existed? Offer to keep it.
+  const legacy = getLegacy();
+  if (legacy) {
+    try {
+      const old = await api('/api/legacy', { key: legacy });
+      $('claimName').textContent = `${old.name} (${fmt(old.land)} acres)`;
+      showAuth('claim');
+      return;
+    } catch { dropLegacy(); }
+  }
+  showAuth('found');
 })();
 </script>
 </body>
