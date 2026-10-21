@@ -73,15 +73,42 @@
   .kv span:nth-child(odd) { color: var(--muted); }
   .empty { color: var(--muted); font-size: 14px; }
   .start { max-width: 520px; margin: 48px auto; }
+  .ico { width: 18px; height: 18px; flex: none; color: var(--accent); vertical-align: -3px; }
+  .stat .label { display: flex; align-items: center; gap: 6px; }
+  td .name { display: flex; align-items: center; gap: 10px; }
+  td .name .ico { width: 22px; height: 22px; }
+  .brand { display: inline-flex; align-items: center; gap: 10px; }
+  .brand svg { width: 30px; height: 30px; color: var(--accent); flex: none; }
+  .banner { display: block; width: calc(100% + 32px); margin: -14px -16px 16px; border-radius: 8px 8px 0 0; }
+  .banner .sky { stop-color: var(--soft); }
+  .banner .sky2 { stop-color: var(--card); }
   footer { color: var(--muted); font-size: 13px; padding: 8px 0 24px; display: flex; gap: 12px; flex-wrap: wrap; }
-  footer a { color: var(--accent); cursor: pointer; }
+  a { color: var(--accent); }
+  footer a { cursor: pointer; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <!-- Shown before a nation exists -->
   <section id="start" class="card start" hidden>
-    <h1>Earth: 2045</h1>
+    <svg class="banner" viewBox="0 0 520 150" preserveAspectRatio="xMidYMid slice" role="img" aria-label="A city skyline on the curve of the Earth under a night sky">
+      <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="sky"/><stop offset="1" class="sky2"/></linearGradient></defs>
+      <rect width="520" height="150" fill="url(#sky)"/>
+      <g fill="var(--accent)" opacity=".55"><circle cx="40" cy="22" r="1.2"/><circle cx="96" cy="44" r="1"/><circle cx="150" cy="18" r="1.4"/><circle cx="214" cy="38" r="1"/><circle cx="300" cy="16" r="1.2"/><circle cx="352" cy="46" r="1"/><circle cx="410" cy="24" r="1.4"/><circle cx="478" cy="40" r="1"/></g>
+      <path d="M-20 70c120 -30 260 -40 420 -20" fill="none" stroke="var(--accent)" stroke-width="1" stroke-dasharray="3 5" opacity=".6"/>
+      <circle cx="402" cy="50" r="3" fill="var(--accent)"/>
+      <path d="M-40 150c150-62 450-62 600 0z" fill="var(--accent)" opacity=".14"/>
+      <path d="M-40 150c150-50 450-50 600 0" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity=".7"/>
+      <g fill="var(--accent)" opacity=".85">
+        <rect x="150" y="104" width="14" height="22"/><rect x="167" y="92" width="10" height="34"/><rect x="180" y="100" width="16" height="26"/>
+        <rect x="199" y="80" width="9" height="46"/><rect x="202" y="72" width="3" height="8"/><rect x="211" y="96" width="14" height="30"/>
+        <rect x="228" y="86" width="12" height="40"/><rect x="243" y="102" width="18" height="24"/><rect x="264" y="76" width="11" height="50"/>
+        <rect x="278" y="94" width="15" height="32"/><rect x="296" y="88" width="10" height="38"/><rect x="309" y="104" width="20" height="22"/>
+        <rect x="332" y="96" width="12" height="30"/><rect x="347" y="106" width="16" height="20"/>
+      </g>
+      <g fill="var(--card)" opacity=".7"><rect x="169" y="98" width="2" height="2"/><rect x="173" y="106" width="2" height="2"/><rect x="201" y="88" width="2" height="2"/><rect x="201" y="100" width="2" height="2"/><rect x="230" y="94" width="2" height="2"/><rect x="235" y="104" width="2" height="2"/><rect x="267" y="84" width="2" height="2"/><rect x="270" y="96" width="2" height="2"/><rect x="298" y="96" width="2" height="2"/><rect x="335" y="104" width="2" height="2"/></g>
+    </svg>
+    <h1 class="brand"><svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="16" cy="16" r="9"/><ellipse cx="16" cy="16" rx="4" ry="9"/><path d="M7 16h18"/><path d="M3.5 21.5c3.5 3 12 1.5 19-3.5s10-10.5 6.5-13" stroke-width="1.4" opacity=".7"/><circle cx="27.2" cy="6.2" r="1.6" fill="currentColor" stroke="none"/></svg>Earth: 2045</h1>
     <p>Found your nation. It starts with 250 acres, a small army and 100 turns. You earn one more turn every 15 minutes.</p>
     <div class="row">
       <input id="newName" type="text" maxlength="24" placeholder="Nation name" autocomplete="off">
@@ -94,7 +121,7 @@
   <!-- The game -->
   <section id="game" hidden>
     <header>
-      <h1>Earth: 2045 <small id="nationName"></small></h1>
+      <h1 class="brand"><svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="16" cy="16" r="9"/><ellipse cx="16" cy="16" rx="4" ry="9"/><path d="M7 16h18"/><path d="M3.5 21.5c3.5 3 12 1.5 19-3.5s10-10.5 6.5-13" stroke-width="1.4" opacity=".7"/><circle cx="27.2" cy="6.2" r="1.6" fill="currentColor" stroke="none"/></svg><span>Earth: 2045 <small id="nationName"></small></span></h1>
       <div class="turns"><b id="turns">0</b> / 240 turns · <span id="nextTurn"></span></div>
     </header>
 
@@ -196,6 +223,30 @@
 </div>
 
 <script>
+// Simple line icons (24×24, drawn with the page's accent colour).
+const ICONS = {
+  land: '<path d="M3 19l6-9 4 6 3-4 5 7z"/>',
+  population: '<circle cx="9" cy="8" r="3"/><path d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 13.2c3 .3 5.5 2.6 5.5 5.8"/>',
+  cash: '<circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.5c-.5-1-1.5-1.5-2.5-1.5-1.4 0-2.5.8-2.5 2s1.1 1.7 2.5 2 2.5.8 2.5 2-1.1 2-2.5 2c-1 0-2-.5-2.5-1.5M12 6.5V8M12 16v1.5"/>',
+  food: '<path d="M12 21V8M12 13c-2.5 0-4-1.5-4-4 2.5 0 4 1.5 4 4zm0 0c2.5 0 4-1.5 4-4-2.5 0-4 1.5-4 4zm0 4c-2.5 0-4-1.5-4-4 2.5 0 4 1.5 4 4zm0 0c2.5 0 4-1.5 4-4-2.5 0-4 1.5-4 4zm0-9c-1.8 0-3-1.3-3-3.5 1.8 0 3 1.3 3 3.5zm0 0c1.8 0 3-1.3 3-3.5-1.8 0-3 1.3-3 3.5z"/>',
+  oil: '<path d="M12 3c3 4 6 7.5 6 11a6 6 0 0 1-12 0c0-3.5 3-7 6-11z"/>',
+  networth: '<path d="M3 17l6-6 4 4 7-8M15 7h5v5"/>',
+  housing: '<path d="M4 11l8-6 8 6v9H4zM10 20v-5h4v5"/>',
+  industry: '<path d="M3 20v-9l5 3v-3l5 3v-3l5 3V4h3v16z"/>',
+  farm: '<path d="M4 20V10l8-5 8 5v10zM9 20v-6h6v6M9 14l6 6M15 14l-6 6"/>',
+  oilRig: '<path d="M8 21l4-17 4 17M9.5 15h5M10.6 10h2.8M6 21h12"/>',
+  barracks: '<path d="M3 20l9-12 9 12zM12 8V3l4 1.5L12 6M10 20l2-3 2 3"/>',
+  lab: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3M7.5 15h9"/>',
+  grid: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',
+  yard: '<path d="M6 21V4h13M6 8l4-4M19 4v5M17 9h4v3h-4zM3 21h7"/>',
+  infantry: '<path d="M4 15a8 8 0 0 1 16 0zM3 15h18M8 15v3h8v-3"/>',
+  tank: '<path d="M3 15h18v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM7 15v-3h8v3M15 12.5h6"/><circle cx="7" cy="17.5" r=".8"/><circle cx="12" cy="17.5" r=".8"/><circle cx="17" cy="17.5" r=".8"/>',
+  artillery: '<circle cx="8" cy="17" r="3"/><path d="M10.5 15.5L20 9M3 21h11"/>',
+  jet: '<path d="M12 3c1 0 1.5 1 1.5 2.5V10l7 4v2l-7-2v4l2 1.5V21L12 20l-3.5 1v-1.5l2-1.5v-4l-7 2v-2l7-4V5.5C10.5 4 11 3 12 3z"/>',
+  spy: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>',
+};
+const icon = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k] || ''}</svg>`;
+
 const KEY = 'e2045.token';
 let token = null, state = null, rules = null, serverOffset = 0;
 
@@ -301,7 +352,7 @@ function render(data) {
   tickClock();
 
   const stat = (label, value, delta) =>
-    `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div>` +
+    `<div class="stat"><div class="label">${icon(label.toLowerCase())}${label}</div><div class="value">${value}</div>` +
     (delta !== undefined ? `<div class="delta ${delta.cls || ''}">${delta.text}</div>` : '') + `</div>`;
   const per = v => ({ text: signed(v) + ' a turn', cls: v < 0 ? 'neg' : 'pos' });
   $('stats').innerHTML =
@@ -324,14 +375,14 @@ function render(data) {
     (disc > 0 ? ` Construction yards save you ${Math.round(disc * 100)}%.` : '');
   $('buildTable').innerHTML = '<tr><th>Building</th><th class="num">Cost</th><th class="num">Have</th><th class="num">Build</th></tr>' +
     Object.entries(rules.buildings).map(([k, b]) =>
-      `<tr><td>${b.name}<span class="effect">${b.effect}</span></td>` +
+      `<tr><td><div class="name">${icon(k)}<div>${b.name}<span class="effect">${b.effect}</span></div></div></td>` +
       `<td class="num">${fmt(b.cost * (1 - disc))}</td><td class="num">${fmt(n.buildings[k])}</td>` +
       `<td class="num"><input type="number" min="0" placeholder="0" data-type="${k}"></td></tr>`).join('');
 
   // Train table
   $('trainTable').innerHTML = '<tr><th>Unit</th><th class="num">Cost</th><th class="num">Off / Def</th><th class="num">Upkeep</th><th class="num">Have</th><th class="num">Train</th></tr>' +
     Object.entries(rules.units).map(([k, u]) =>
-      `<tr><td>${u.name}</td><td class="num">${fmt(u.cost)}</td>` +
+      `<tr><td><div class="name">${icon(k)}${u.name}</div></td><td class="num">${fmt(u.cost)}</td>` +
       `<td class="num">${u.troop ? `${u.off} / ${u.def}` : '—'}</td>` +
       `<td class="num">${u.upkeep}${u.oil ? ` + ${u.oil} oil` : ''}</td>` +
       `<td class="num">${fmt(n.units[k])}</td>` +
@@ -355,7 +406,7 @@ function render(data) {
   $('queue').innerHTML = n.queue.length
     ? '<table>' + n.queue.map(q => {
         const def = q.kind === 'building' ? rules.buildings[q.type] : rules.units[q.type];
-        return `<tr><td>${fmt(q.count)} ${def.name}</td><td class="num">${q.ticks} turn${q.ticks > 1 ? 's' : ''} left</td></tr>`;
+        return `<tr><td><div class="name">${icon(q.type)}${fmt(q.count)} ${def.name}</div></td><td class="num">${q.ticks} turn${q.ticks > 1 ? 's' : ''} left</td></tr>`;
       }).join('') + '</table>'
     : '<p class="empty">Nothing under construction or in training.</p>';
 
