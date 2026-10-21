@@ -310,6 +310,41 @@ export function applyAction(n, action, now) {
   }
 }
 
+// ---------- spying ----------
+// Spying looks at another nation. Success depends on your spies per acre
+// compared with theirs: equal = 50%, double = ~74%, half = ~26% (5%–95%).
+export function spyChance(n, target) {
+  const mine = n.units.spy / n.land;
+  const theirs = target.units.spy / target.land;
+  if (theirs <= 0) return 0.95;
+  const r = (mine / theirs) ** 1.5;
+  return Math.min(0.95, Math.max(0.05, r / (r + 1)));
+}
+
+export function spyOp(n, target, now, rng = Math.random) {
+  if (n.units.spy < 1) throw new GameError('You need at least 1 spy. Train some under Military.');
+  const chance = spyChance(n, target); // judged before this turn's tick
+  spendTurns(n, 1);
+  tick(n, now);
+  if (rng() < chance) {
+    const s = stats(target);
+    const report = {
+      at: now, name: target.name, land: target.land, population: target.population,
+      cash: target.cash, food: target.food, oil: target.oil,
+      buildings: { ...target.buildings }, units: { ...target.units },
+      offence: s.offence, defence: s.defence, networth: s.networth,
+    };
+    n.intel = [report, ...(n.intel ?? []).filter(r => r.name !== target.name)].slice(0, 8);
+    log(n, now, `Your spies reported on ${target.name}.`);
+    return { success: true, chance, message: `Your spies got into ${target.name}. Report below.` };
+  }
+  const lost = Math.max(1, Math.ceil(n.units.spy * 0.05));
+  n.units.spy -= lost;
+  const message = `Your spies were caught in ${target.name}; ${lost} ${lost === 1 ? 'spy' : 'spies'} lost.`;
+  log(n, now, message);
+  return { success: false, chance, lost, message };
+}
+
 function signed(v) {
   const r = Math.round(v);
   return (r >= 0 ? '+' : '−') + Math.abs(r).toLocaleString('en-CA');
@@ -323,6 +358,7 @@ export function view(n, now) {
       population: n.population, tax: n.tax, techPoints: n.techPoints,
       buildings: n.buildings, units: n.units, queue: n.queue,
       turns: n.turns, nextTurnAt: nextTurnAt(n), ticks: n.ticks, log: n.log,
+      intel: n.intel ?? [],
     },
     stats: stats(n),
     serverTime: now,

@@ -5,7 +5,7 @@
 -- Upgrading an older database? Run once, only the lines it doesn't have yet:
 --   ALTER TABLE nations ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0;
 --   ALTER TABLE nations ADD COLUMN user_id INTEGER;
---   then the users/sessions tables and idx_nations_user below.
+--   then any tables and indexes below that it doesn't have yet.
 
 CREATE TABLE IF NOT EXISTS nations (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,3 +55,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
+
+-- Things that happened to a nation because of someone else (caught spies, attacks).
+CREATE TABLE IF NOT EXISTS events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  nation_id  INTEGER NOT NULL,
+  at         INTEGER NOT NULL,
+  kind       TEXT    NOT NULL,
+  text       TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_nation ON events (nation_id, at);

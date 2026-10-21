@@ -3,7 +3,7 @@
 // which Cloudflare serves before this code runs. Every 30 minutes Cloudflare
 // also calls scheduled(), which lets the AI nations take their turns.
 
-import { newNation, accrueTurns, applyAction, view, stats, GameError, RULES } from './game.js';
+import { newNation, accrueTurns, applyAction, spyOp, view, stats, GameError, RULES } from './game.js';
 import { ROSTER, newBot, botPlay } from './bots.js';
 import { AUTH, sha256, randomToken, hashPassword, sameHex, checkUsername, checkPassword, checkNationName } from './auth.js';
 
@@ -72,7 +72,7 @@ async function route(request, env, url) {
     const row = await loadNation(request, env);
     const now = Date.now();
     const n = accrueTurns(JSON.parse(row.state), now); // shown, not saved: reads cost nothing
-    return json({ account: { username: row.username }, ...view(n, now) });
+    return json({ account: { username: row.username }, events: await recentEvents(env, row.id), ...view(n, now) });
   }
 
   if (pathname === '/api/action' && method === 'POST') return doAction(request, env);
@@ -190,8 +190,52 @@ async function startSession(env, username, now) {
   return token;
 }
 
+// Things other nations did to you (caught spies now; attacks later).
+async function recentEvents(env, nationId) {
+  const { results } = await env.DB
+    .prepare('SELECT at, text FROM events WHERE nation_id = ? ORDER BY at DESC LIMIT 30')
+    .bind(nationId).all();
+  return results;
+}
+
+const SAVE_NATION = `UPDATE nations SET state = ?, land = ?, networth = ?, version = version + 1, updated_at = ?
+                     WHERE id = ? AND version = ?`;
+// Runs only if the statement just before it saved (changes() = 1), so a lost race leaves no stray rows.
+const IF_SAVED = 'WHERE changes() = 1';
+
+async function doSpy(request, env, action) {
+  const targetName = String(action.target ?? '').trim();
+  if (!targetName) throw new HttpError(400, 'Choose a nation to spy on.');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const row = await loadNation(request, env);
+    const target = await env.DB.prepare('SELECT id, name, state FROM nations WHERE name = ?').bind(targetName).first();
+    if (!target) throw new HttpError(404, `No nation called ${targetName}.`);
+    if (target.id === row.id) throw new HttpError(400, "You can't spy on yourself.");
+    const now = Date.now();
+    const n = accrueTurns(JSON.parse(row.state), now);
+    const result = spyOp(n, JSON.parse(target.state), now);
+    const stmts = [
+      env.DB.prepare(SAVE_NATION).bind(JSON.stringify(n), n.land, stats(n).networth, now, row.id, row.version),
+      env.DB.prepare(`INSERT INTO audit_log (nation_id, action, detail, at) SELECT ?, 'spy', ?, ? ${IF_SAVED}`)
+        .bind(row.id, JSON.stringify({ target: target.name, success: result.success }), now),
+    ];
+    if (!result.success) {
+      // The target finds out who tried. (changes() here refers to the audit insert, which ran only if we saved.)
+      stmts.push(env.DB.prepare(`INSERT INTO events (nation_id, at, kind, text) SELECT ?, ?, 'spy', ? ${IF_SAVED}`)
+        .bind(target.id, now, `You caught ${result.lost} ${result.lost === 1 ? 'spy' : 'spies'} from ${n.name}.`));
+    }
+    const out = await env.DB.batch(stmts);
+    if (out[0].meta.changes === 1) {
+      return json({ message: result.message, spy: { success: result.success, chance: result.chance },
+                    events: await recentEvents(env, row.id), ...view(n, now) });
+    }
+  }
+  throw new HttpError(409, 'Your nation changed while that was processing. Please try again.');
+}
+
 async function doAction(request, env) {
   const action = await readJson(request);
+  if (action.type === 'spy') return doSpy(request, env, action);
   // Try twice: if another request changed the nation in between, reload and retry once.
   for (let attempt = 0; attempt < 2; attempt++) {
     const row = await loadNation(request, env);
@@ -207,7 +251,7 @@ async function doAction(request, env) {
     if (result.meta.changes === 1) {
       await env.DB.prepare('INSERT INTO audit_log (nation_id, action, detail, at) VALUES (?, ?, ?, ?)')
         .bind(row.id, String(action.type), JSON.stringify(action).slice(0, 500), now).run();
-      return json({ message, ...view(n, now) });
+      return json({ message, events: await recentEvents(env, row.id), ...view(n, now) });
     }
   }
   throw new HttpError(409, 'Your nation changed while that was processing. Please try again.');

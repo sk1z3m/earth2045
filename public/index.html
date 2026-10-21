@@ -86,6 +86,12 @@
   .banner .sky { stop-color: var(--soft); }
   .banner .sky2 { stop-color: var(--card); }
   .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+  .report { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 12px; }
+  .report-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .report-head time { color: var(--muted); font-size: 12px; }
+  .report .hint { margin: 8px 0 0; }
+  ul.log li.outside { display: flex; flex-wrap: wrap; gap: 0 6px; }
+  ul.log li.outside time { flex-basis: 100%; }
   footer { color: var(--muted); font-size: 13px; padding: 8px 0 24px; display: flex; gap: 12px; flex-wrap: wrap; }
   a { color: var(--accent); }
   footer a { cursor: pointer; }
@@ -160,6 +166,7 @@
             <button data-tab="explore">Explore</button>
             <button data-tab="build">Build</button>
             <button data-tab="train">Military</button>
+            <button data-tab="intel">Intel</button>
             <button data-tab="policy">Policy</button>
           </div>
 
@@ -196,6 +203,17 @@
               <button data-act="train">Train (1 turn)</button>
               <span class="hint" style="margin:0" id="trainTotal"></span>
             </div>
+          </div>
+
+          <div class="panel" data-panel="intel" hidden>
+            <p class="hint">Send your spies to see another nation's land, resources, buildings and army. Costs 1 turn.
+              Your chance depends on your spies per acre compared with theirs. If they're caught, you lose 5% of your spies and the target finds out who sent them.</p>
+            <div class="row">
+              <input id="spyTarget" type="text" list="nationList" placeholder="Nation name" autocomplete="off">
+              <datalist id="nationList"></datalist>
+              <button data-act="spy">Spy (1 turn)</button>
+            </div>
+            <div id="intel"></div>
           </div>
 
           <div class="panel" data-panel="policy" hidden>
@@ -378,6 +396,7 @@ function actionBody(act) {
     case 'train':    return { type: act, items: counts('trainTable') };
     case 'setTax':   return { type: act, rate: parseInt($('taxRange').value, 10) };
     case 'demolish': return { type: act, items: { [$('demoType').value]: parseInt($('demoCount').value, 10) } };
+    case 'spy':      return { type: act, target: $('spyTarget').value };
   }
 }
 
@@ -386,7 +405,7 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.onclick = async () =>
   try {
     const data = await api('/api/action', actionBody(btn.dataset.act));
     render(data);
-    showMsg($('msg'), data.message, true);
+    showMsg($('msg'), data.message + (data.spy ? ` (${Math.round(data.spy.chance * 100)}% chance)` : ''), !data.spy || data.spy.success);
   } catch (e) {
     if (e.status === 401) { setToken(null); location.reload(); return; }
     showMsg($('msg'), e.message);
@@ -468,8 +487,23 @@ function render(data) {
       }).join('') + '</table>'
     : '<p class="empty">Nothing under construction or in training.</p>';
 
-  $('log').innerHTML = n.log.map(e =>
-    `<li><time>${new Date(e.at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(e.text)}</li>`).join('');
+  // Your own report plus things other nations did to you, newest first.
+  const when = at => new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' });
+  const entries = [...n.log.map(e => ({ ...e, outside: false })), ...(data.events ?? []).map(e => ({ ...e, outside: true }))]
+    .sort((a, b) => b.at - a.at).slice(0, 40);
+  $('log').innerHTML = entries.map(e =>
+    `<li${e.outside ? ' class="outside"' : ''}><time>${when(e.at)}</time>${e.outside ? icon('spy') : ''}${esc(e.text)}</li>`).join('');
+
+  $('intel').innerHTML = n.intel.length ? n.intel.map(r => `
+    <div class="report">
+      <div class="report-head"><b>${esc(r.name)}</b><time>${when(r.at)}</time></div>
+      <div class="kv">${[
+        ['Land', fmt(r.land) + ' acres'], ['Population', fmt(r.population)], ['Cash', fmt(r.cash)],
+        ['Food', fmt(r.food)], ['Oil', fmt(r.oil)], ['Offence', fmt(r.offence)], ['Defence', fmt(r.defence)],
+      ].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div>
+      <p class="hint">Buildings: ${Object.entries(r.buildings).filter(([, v]) => v).map(([k, v]) => `${rules.buildings[k].name} ${fmt(v)}`).join(' · ')}</p>
+      <p class="hint">Army: ${Object.entries(r.units).filter(([, v]) => v).map(([k, v]) => `${rules.units[k].name} ${fmt(v)}`).join(' · ')}</p>
+    </div>`).join('') : '<p class="empty">No spy reports yet.</p>';
 
   loadRankings();
 }
@@ -493,9 +527,19 @@ function wireTotals() {
 async function loadRankings() {
   try {
     const { rankings } = await api('/api/rankings');
-    $('rankings').innerHTML = '<tr><th>#</th><th>Nation</th><th class="num">Land</th></tr>' +
-      rankings.map((r, i) => `<tr${r.name === state.nation.name ? ' style="font-weight:600"' : ''}>` +
-        `<td>${i + 1}</td><td>${esc(r.name)}${r.ai ? '<span class="tag" title="Computer-controlled nation">AI</span>' : ''}</td><td class="num">${fmt(r.land)}</td></tr>`).join('');
+    const me = state.nation.name;
+    $('rankings').innerHTML = '<tr><th>#</th><th>Nation</th><th class="num">Land</th><th></th></tr>' +
+      rankings.map((r, i) => `<tr${r.name === me ? ' style="font-weight:600"' : ''}>` +
+        `<td>${i + 1}</td><td>${esc(r.name)}${r.ai ? '<span class="tag" title="Computer-controlled nation">AI</span>' : ''}</td>` +
+        `<td class="num">${fmt(r.land)}</td>` +
+        `<td class="num">${r.name === me ? '' : `<a href="#" class="spylink" data-name="${esc(r.name)}">Spy</a>`}</td></tr>`).join('');
+    $('nationList').innerHTML = rankings.filter(r => r.name !== me).map(r => `<option value="${esc(r.name)}">`).join('');
+    document.querySelectorAll('.spylink').forEach(a => a.onclick = e => {
+      e.preventDefault();
+      $('spyTarget').value = a.dataset.name;
+      document.querySelector('#game .tabs button[data-tab="intel"]').click();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
   } catch {}
 }
 

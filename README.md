@@ -96,6 +96,6 @@ to create an account and attach the old nation to it.
 
 ## Known limits of stage 1
 
-- No attacks, spies, market, research spending or governments yet.
+- Spying works; attacks, market, research spending and governments are still to come.
 - No email verification or rate limiting yet, so it's for testing with friends, not a public launch.
 - Rankings show the top 25 nations by land.

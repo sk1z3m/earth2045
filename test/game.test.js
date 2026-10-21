@@ -1,7 +1,7 @@
 // Run with: npm test   (uses Node's built-in test runner, no install needed)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newNation, accrueTurns, applyAction, stats, tick, CONFIG, GameError } from '../src/game.js';
+import { newNation, accrueTurns, applyAction, stats, tick, spyOp, spyChance, CONFIG, GameError } from '../src/game.js';
 
 const T0 = Date.UTC(2026, 9, 21, 12, 0, 0);
 const TURN = CONFIG.turnMinutes * 60 * 1000;
@@ -101,4 +101,43 @@ test('a full day of idle turns keeps the starting nation solvent', () => {
   const n = fresh();
   for (let i = 0; i < 96; i++) tick(n, T0);
   assert.ok(n.cash > 0 && n.food > 0 && n.oil > 0);
+});
+
+
+test('spy chance follows spies per acre', () => {
+  const a = fresh(), b = fresh();
+  assert.equal(spyChance(a, b), 0.5);              // equal spies, equal land
+  b.units.spy = 5;
+  assert.ok(spyChance(a, b) > 0.7);               // twice their density
+  b.units.spy = 0;
+  assert.equal(spyChance(a, b), 0.95);            // they have none
+  a.units.spy = 1; b.units.spy = 500;
+  assert.equal(spyChance(a, b), 0.05);            // never below 5%
+});
+
+test('a successful spy op files a report and costs one turn', () => {
+  const a = fresh(), b = newNation('Target', T0);
+  const r = spyOp(a, b, T0, () => 0);
+  assert.ok(r.success);
+  assert.equal(a.turns, CONFIG.startTurns - 1);
+  assert.equal(a.intel[0].name, 'Target');
+  assert.equal(a.intel[0].units.infantry, b.units.infantry);
+  spyOp(a, b, T0, () => 0);
+  assert.equal(a.intel.length, 1, 'a newer report replaces the old one');
+});
+
+test('caught spies cost 5% (at least 1) and leave no report', () => {
+  const a = fresh(), b = newNation('Target', T0);
+  const r = spyOp(a, b, T0, () => 0.99);
+  assert.ok(!r.success);
+  assert.equal(r.lost, 1);
+  assert.equal(a.units.spy, 9);
+  assert.equal((a.intel ?? []).length, 0);
+});
+
+test('spying needs spies', () => {
+  const a = fresh();
+  a.units.spy = 0;
+  assert.throws(() => spyOp(a, fresh(), T0), /at least 1 spy/);
+  assert.equal(a.turns, CONFIG.startTurns);
 });
