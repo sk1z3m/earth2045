@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Earth: 2045 Admin</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --ink: #1d1f21; --muted: #6a6f75; --line: #e2e2de;
+    --accent: #2f6f5e; --accent-ink: #ffffff; --good: #2f7a3f; --bad: #b3372b; --soft: #eef3f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141618; --card: #1c1f22; --ink: #e8e9ea; --muted: #9aa0a6; --line: #2e3236;
+      --accent: #5fb39b; --accent-ink: #0d1412; --good: #6cc27f; --bad: #ef7d70; --soft: #20302b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding: 8px 0 16px; }
+  h1 { margin: 0; font-size: 22px; display: inline-flex; align-items: center; gap: 10px; }
+  h1 svg { width: 30px; height: 30px; color: var(--accent); }
+  h1 small { font-weight: 400; color: var(--muted); font-size: 15px; }
+  h2 { margin: 0 0 10px; font-size: 16px; }
+  h3 { margin: 16px 0 8px; font-size: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat .label { color: var(--muted); font-size: 13px; }
+  .stat .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.num, th.num { text-align: right; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover, tbody tr.on { background: var(--soft); }
+  input, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  input[type=number] { width: 100px; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 6px 14px; cursor: pointer; font-weight: 500; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button.danger { border-color: var(--bad); background: transparent; color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
+  .tag.bad { color: var(--bad); border-color: var(--bad); }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-variant-numeric: tabular-nums; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .msg { min-height: 22px; margin: 10px 0 0; font-size: 14px; }
+  .msg.err { color: var(--bad); } .msg.ok { color: var(--good); }
+  ul.list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; font-size: 13.5px; }
+  ul.list li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  ul.list time { color: var(--muted); font-size: 12px; margin-right: 6px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .denied { max-width: 520px; margin: 80px auto; text-align: center; color: var(--muted); }
+  .grant input { width: 90px; }
+  .grant label { font-size: 13px; color: var(--muted); display: inline-flex; flex-direction: column; gap: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="denied" class="denied" hidden>
+    <p>This page isn't available.</p>
+    <p><a href="/">Go to Earth: 2045</a></p>
+  </div>
+
+  <main id="admin" hidden>
+    <header>
+      <h1><svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="16" cy="16" r="9"/><ellipse cx="16" cy="16" rx="4" ry="9"/><path d="M7 16h18"/><path d="M3.5 21.5c3.5 3 12 1.5 19-3.5s10-10.5 6.5-13" stroke-width="1.4" opacity=".7"/><circle cx="27.2" cy="6.2" r="1.6" fill="currentColor" stroke="none"/></svg>Earth: 2045 <small>Admin</small></h1>
+      <a href="/">Back to the game</a>
+    </header>
+
+    <div class="stats" id="counts"></div>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <h2>Nations</h2>
+          <div class="row" style="margin-bottom:10px">
+            <input id="q" type="search" placeholder="Search nation or username" style="flex:1; min-width:200px">
+          </div>
+          <table>
+            <thead><tr><th>Nation</th><th>Account</th><th class="num">Land</th><th class="num">Last active</th></tr></thead>
+            <tbody id="nations"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2>Announcement</h2>
+          <p class="hint">Shown at the top of the game for every player, including on the sign-in screen. Up to 300 characters.</p>
+          <textarea id="announceText" maxlength="300"></textarea>
+          <div class="row" style="margin-top:8px">
+            <button id="announceSave">Publish</button>
+            <button id="announceClear" class="ghost">Remove</button>
+          </div>
+          <p id="announceMsg" class="msg"></p>
+        </div>
+
+        <div class="card">
+          <h2>Tools</h2>
+          <div class="row">
+            <button id="runAi" class="ghost">Run AI nations now</button>
+            <span class="hint" style="margin:0">They normally take turns every 30 minutes.</span>
+          </div>
+          <p id="toolsMsg" class="msg"></p>
+          <h3>Recent admin actions</h3>
+          <ul class="list" id="recentAdmin"></ul>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" id="detail">
+          <p class="empty">Choose a nation to see its details.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = v => Math.round(v).toLocaleString('en-CA');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const when = at => at ? new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const ago = at => {
+  if (!at) return '—';
+  const m = Math.round((Date.now() - at) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
+let token = null, rules = null, selected = null;
+try { token = localStorage.getItem('e2045.session'); } catch {}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || 'Request failed'); e.status = res.status; throw e; }
+  return data;
+}
+function showMsg(el, text, ok) { el.textContent = text || ''; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
+
+async function loadOverview() {
+  const o = await api('/api/admin/overview');
+  const c = o.counts;
+  const stat = (label, value) => `<div class="stat"><div class="label">${label}</div><div class="value">${fmt(value)}</div></div>`;
+  $('counts').innerHTML = stat('Players', c.players) + stat('AI nations', c.ai) + stat('Sign-ups (24 h)', c.signups24h) +
+    stat('Active (24 h)', c.active24h) + stat('Actions (24 h)', c.actions24h) + stat('Locked', c.locked) + stat('Suspended', c.suspended);
+  if (document.activeElement !== $('announceText')) $('announceText').value = o.announcement;
+  $('recentAdmin').innerHTML = o.recentAdmin.length
+    ? o.recentAdmin.map(a => `<li><time>${when(a.at)}</time>${esc(a.action.replace('admin:', ''))} ${esc(summarize(a.detail))}</li>`).join('')
+    : '<li class="empty">None yet.</li>';
+}
+
+function summarize(detail) {
+  try {
+    const d = JSON.parse(detail); delete d.by;
+    return Object.entries(d).filter(([, v]) => v !== null && v !== '').map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');
+  } catch { return detail ?? ''; }
+}
+
+async function loadNations() {
+  const { nations } = await api('/api/admin/nations?q=' + encodeURIComponent($('q').value));
+  $('nations').innerHTML = nations.length ? nations.map(n => {
+    const tags = (n.is_bot ? '<span class="tag">AI</span>' : '') +
+      (n.suspended ? '<span class="tag bad">Suspended</span>' : '') +
+      (n.locked_until > Date.now() ? '<span class="tag bad">Locked</span>' : '');
+    return `<tr data-id="${n.id}"${n.id === selected ? ' class="on"' : ''}><td>${esc(n.name)}${tags}</td>` +
+      `<td>${n.username ? esc(n.username) : '<span class="hint">—</span>'}</td>` +
+      `<td class="num">${fmt(n.land)}</td><td class="num">${ago(n.updated_at)}</td></tr>`;
+  }).join('') : '<tr><td colspan="4" class="empty">No matches.</td></tr>';
+  document.querySelectorAll('#nations tr[data-id]').forEach(tr => tr.onclick = () => openNation(Number(tr.dataset.id)));
+}
+
+async function openNation(id) {
+  selected = id;
+  document.querySelectorAll('#nations tr').forEach(tr => tr.classList.toggle('on', Number(tr.dataset.id) === id));
+  const d = await api('/api/admin/nation?id=' + id);
+  const n = d.nation, s = d.stats;
+  const list = obj => Object.entries(obj).filter(([, v]) => v).map(([k, v]) =>
+    `${(rules.buildings[k] || rules.units[k] || { name: k }).name} ${fmt(v)}`).join(' · ') || 'none';
+  const locked = d.locked_until > Date.now();
+  $('detail').innerHTML = `
+    <h2>${esc(d.name)}${d.is_bot ? '<span class="tag">AI</span>' : ''}${d.suspended ? '<span class="tag bad">Suspended</span>' : ''}${locked ? '<span class="tag bad">Locked</span>' : ''}</h2>
+    <div class="kv">${[
+      ['Account', d.username ? esc(d.username) : (d.is_bot ? 'Computer-controlled' : 'None')],
+      ...(d.username ? [['Signed up', when(d.user_created)]] : []),
+      ['Last active', `${when(d.updated_at)} (${ago(d.updated_at)})`],
+      ['Turns', `${fmt(n.turns)} / ${rules.config.turnCap}`], ['Land', `${fmt(n.land)} acres (${fmt(s.freeLand)} free)`],
+      ['Population', fmt(n.population)], ['Cash', `${fmt(n.cash)} (${s.cashPerTick >= 0 ? '+' : ''}${fmt(s.cashPerTick)} a turn)`],
+      ['Food', `${fmt(n.food)} (${s.foodPerTick >= 0 ? '+' : ''}${fmt(s.foodPerTick)} a turn)`], ['Oil', fmt(n.oil)],
+      ['Offence / defence', `${fmt(s.offence)} / ${fmt(s.defence)}`], ['Networth', fmt(s.networth)],
+      ...(d.suspended && d.suspended_reason ? [['Suspension reason', esc(d.suspended_reason)]] : []),
+    ].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('')}</div>
+    <p class="hint" style="margin-top:8px">Buildings: ${list(n.buildings)}<br>Army: ${list(n.units)}</p>
+
+    <h3>Rename</h3>
+    <div class="row"><input id="renameTo" type="text" maxlength="24" value="${esc(d.name)}"><button id="renameBtn" class="ghost">Rename</button></div>
+
+    <h3>Give or take (testing)</h3>
+    <div class="row grant">
+      <label>Turns<input id="gTurns" type="number" step="1" placeholder="0"></label>
+      <label>Cash<input id="gCash" type="number" step="1" placeholder="0"></label>
+      <label>Food<input id="gFood" type="number" step="1" placeholder="0"></label>
+      <label>Oil<input id="gOil" type="number" step="1" placeholder="0"></label>
+      <button id="grantBtn" class="ghost" style="align-self:flex-end">Apply</button>
+    </div>
+    <p class="hint" style="margin-top:6px">Negative numbers take away. The player sees a line in their report saying an administrator adjusted their nation.</p>
+
+    ${d.user_id ? `
+    <h3>Account</h3>
+    ${locked ? '<div class="row" style="margin-bottom:8px"><button id="unlockBtn" class="ghost">Unlock sign-in</button></div>' : ''}
+    ${d.suspended
+      ? `<div class="row"><input id="susPass" type="password" placeholder="Your password" autocomplete="current-password"><button id="restoreBtn" class="ghost">Restore account</button></div>`
+      : `<div class="row"><input id="susReason" type="text" maxlength="200" placeholder="Reason (shown only here)" style="flex:1">
+         <input id="susPass" type="password" placeholder="Your password" autocomplete="current-password"><button id="suspendBtn" class="danger">Suspend</button></div>
+         <p class="hint" style="margin-top:6px">Suspending signs them out everywhere and blocks sign-in until restored.</p>`}` : ''}
+
+    <p id="detailMsg" class="msg"></p>
+
+    <h3>Recent actions</h3>
+    <ul class="list">${d.actions.length ? d.actions.map(a => `<li><time>${when(a.at)}</time>${esc(a.action)} ${esc(summarize(a.detail))}</li>`).join('') : '<li class="empty">None.</li>'}</ul>
+    <h3>Things done to them</h3>
+    <ul class="list">${d.events.length ? d.events.map(e => `<li><time>${when(e.at)}</time>${esc(e.text)}</li>`).join('') : '<li class="empty">None.</li>'}</ul>`;
+
+  const act = (btnId, fn) => { const b = $(btnId); if (b) b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await fn(); showMsg($('detailMsg'), r.message, true); await Promise.all([loadNations(), loadOverview()]);
+          const keep = $('detailMsg').textContent; await openNation(id); showMsg($('detailMsg'), keep, true); }
+    catch (e) { showMsg($('detailMsg'), e.message); }
+    finally { b.disabled = false; }
+  }; };
+  act('renameBtn', () => api('/api/admin/rename', { nationId: id, name: $('renameTo').value }));
+  act('grantBtn', () => api('/api/admin/grant', { nationId: id, turns: +$('gTurns').value || 0, cash: +$('gCash').value || 0, food: +$('gFood').value || 0, oil: +$('gOil').value || 0 }));
+  act('unlockBtn', () => api('/api/admin/unlock', { userId: d.user_id }));
+  act('suspendBtn', () => api('/api/admin/suspend', { userId: d.user_id, suspend: true, reason: $('susReason').value, password: $('susPass').value }));
+  act('restoreBtn', () => api('/api/admin/suspend', { userId: d.user_id, suspend: false, password: $('susPass').value }));
+}
+
+$('announceSave').onclick = async () => {
+  try { showMsg($('announceMsg'), (await api('/api/admin/announce', { text: $('announceText').value })).message, true); loadOverview(); }
+  catch (e) { showMsg($('announceMsg'), e.message); }
+};
+$('announceClear').onclick = async () => {
+  $('announceText').value = '';
+  $('announceSave').click();
+};
+$('runAi').onclick = async () => {
+  $('runAi').disabled = true;
+  try { showMsg($('toolsMsg'), (await api('/api/admin/run-ai', {})).message, true); await Promise.all([loadNations(), loadOverview()]); }
+  catch (e) { showMsg($('toolsMsg'), e.message); }
+  finally { $('runAi').disabled = false; }
+};
+let searchTimer;
+$('q').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(loadNations, 250); };
+
+(async function init() {
+  try {
+    rules = await api('/api/rules');
+    await loadOverview();
+  } catch { $('denied').hidden = false; return; }
+  $('admin').hidden = false;
+  await loadNations();
+})();
+</script>
+</body>
+</html>

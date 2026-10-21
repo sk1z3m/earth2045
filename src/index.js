@@ -6,6 +6,8 @@
 import { newNation, accrueTurns, applyAction, spyOp, view, stats, GameError, RULES } from './game.js';
 import { ROSTER, newBot, botPlay } from './bots.js';
 import { AUTH, sha256, randomToken, hashPassword, sameHex, checkUsername, checkPassword, checkNationName } from './auth.js';
+import { HttpError, json, readJson, bearer } from './http.js';
+import { handleAdmin, getAnnouncement } from './admin.js';
 
 export default {
   async fetch(request, env) {
@@ -53,15 +55,12 @@ async function seedBots(env, now) {
   }));
 }
 
-class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-
 async function route(request, env, url) {
   const { pathname } = url;
   const method = request.method;
 
-  if (pathname === '/api/rules' && method === 'GET') return json(RULES);
+  if (pathname === '/api/rules' && method === 'GET') return json({ ...RULES, announcement: await getAnnouncement(env) });
+  if (pathname.startsWith('/api/admin/')) return handleAdmin(request, env, url, { runBots });
 
   if (pathname === '/api/register' && method === 'POST') return register(request, env);
   if (pathname === '/api/login' && method === 'POST') return login(request, env);
@@ -72,7 +71,7 @@ async function route(request, env, url) {
     const row = await loadNation(request, env);
     const now = Date.now();
     const n = accrueTurns(JSON.parse(row.state), now); // shown, not saved: reads cost nothing
-    return json({ account: { username: row.username }, events: await recentEvents(env, row.id), ...view(n, now) });
+    return json({ account: { username: row.username, isAdmin: row.is_admin === 1 }, events: await recentEvents(env, row.id), ...view(n, now) });
   }
 
   if (pathname === '/api/action' && method === 'POST') return doAction(request, env);
@@ -143,7 +142,7 @@ async function login(request, env) {
   const username = String(body.username ?? '').trim();
   const now = Date.now();
   const user = await env.DB
-    .prepare('SELECT id, pass_hash, salt, iterations, failed_logins, locked_until FROM users WHERE username = ?')
+    .prepare('SELECT id, pass_hash, salt, iterations, failed_logins, locked_until, suspended FROM users WHERE username = ?')
     .bind(username).first();
   if (user && user.locked_until > now) {
     const mins = Math.ceil((user.locked_until - now) / 60000);
@@ -163,6 +162,7 @@ async function login(request, env) {
   if (user.failed_logins) {
     await env.DB.prepare('UPDATE users SET failed_logins = 0 WHERE id = ?').bind(user.id).run();
   }
+  if (user.suspended) throw new HttpError(403, 'This account has been suspended.');
   await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now).run();
   return json({ token: await startSession(env, username, now) });
 }
@@ -257,32 +257,15 @@ async function doAction(request, env) {
   throw new HttpError(409, 'Your nation changed while that was processing. Please try again.');
 }
 
-function bearer(request) {
-  const auth = request.headers.get('Authorization') ?? '';
-  return auth.startsWith('Bearer ') ? auth.slice(7) : '';
-}
-
 async function loadNation(request, env) {
   const token = bearer(request);
   if (!token) throw new HttpError(401, 'Please sign in.');
   const row = await env.DB.prepare(
-    `SELECT n.id, n.state, n.version, u.username
+    `SELECT n.id, n.state, n.version, u.username, u.is_admin, u.suspended
        FROM sessions s JOIN users u ON u.id = s.user_id JOIN nations n ON n.user_id = u.id
       WHERE s.token_hash = ? AND s.expires_at > ?`
   ).bind(await sha256(token), Date.now()).first();
   if (!row) throw new HttpError(401, 'Please sign in.');
+  if (row.suspended) throw new HttpError(403, 'This account has been suspended.');
   return row;
-}
-
-async function readJson(request) {
-  const text = await request.text();
-  if (text.length > 10_000) throw new HttpError(413, 'Request too large.');
-  try { return JSON.parse(text || '{}'); } catch { throw new HttpError(400, 'Bad request.'); }
-}
-
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  });
 }

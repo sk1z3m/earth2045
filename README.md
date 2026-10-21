@@ -12,6 +12,9 @@ Attacks, alliances and the rest come in later stages (see the design doc).
 | `src/index.js` | The Cloudflare Worker: the API the page talks to, saving to the database, and the AI schedule. |
 | `src/bots.js` | The AI nations: their names, play styles and decision-making. |
 | `src/auth.js` | Accounts: password hashing, sign-up rules and sign-in limits. |
+| `src/admin.js` | The admin API (admin accounts only). |
+| `src/http.js` | Small shared helpers for API responses. |
+| `public/admin.html` | The admin page. |
 | `public/index.html` | The game page players see. |
 | `schema.sql` | Creates the database tables. |
 | `wrangler.toml` | Cloudflare settings. |
@@ -93,6 +96,21 @@ There's no email yet, so there's no password reset. Email sign-in and recovery n
 
 Nations founded before accounts existed are kept: the first time that browser opens the game, it offers
 to create an account and attach the old nation to it.
+
+## Admin
+
+Admin accounts see an **Admin** link at the bottom of the game, which opens `/admin.html`. There you can:
+see player counts and activity, search every nation and open its full details and action history,
+rename nations, unlock or suspend accounts (suspending asks for your password again), give or take turns,
+cash, food and oil for testing, run the AI nations immediately, and publish an announcement banner.
+
+Every admin request is checked on the server; anyone without the flag just gets "Not found". Every admin
+action goes in the audit log with your username. There is no way to become an admin from the game itself:
+the flag is set directly in the database:
+
+```
+npx wrangler d1 execute earth2045 --remote --command "UPDATE users SET is_admin = 1 WHERE username = 'NAME'"
+```
 
 ## Known limits of stage 1
 

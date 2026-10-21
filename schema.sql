@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS users (
   iterations     INTEGER NOT NULL,
   failed_logins  INTEGER NOT NULL DEFAULT 0,
   locked_until   INTEGER NOT NULL DEFAULT 0,
+  is_admin       INTEGER NOT NULL DEFAULT 0, -- set by hand in the database only
+  suspended      INTEGER NOT NULL DEFAULT 0,
+  suspended_reason TEXT,
   created_at     INTEGER NOT NULL
 );
 
@@ -66,3 +69,9 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_nation ON events (nation_id, at);
+
+-- Game-wide settings, such as the announcement banner.
+CREATE TABLE IF NOT EXISTS settings (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
+);

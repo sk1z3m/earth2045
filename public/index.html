@@ -73,6 +73,8 @@
   .kv span:nth-child(odd) { color: var(--muted); }
   .empty { color: var(--muted); font-size: 14px; }
   .start { max-width: 520px; margin: 48px auto; }
+  .announce { background: var(--soft); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 14px; margin: 0 0 12px; font-size: 14px; }
+  .announce[hidden] { display: none; }
   .authpanel label { display: block; margin: 0 0 12px; font-size: 14px; color: var(--muted); }
   .authpanel label input { display: block; width: 100%; margin-top: 4px; }
   .authpanel label .hint { display: block; margin: 4px 0 0; }
@@ -99,6 +101,8 @@
 </head>
 <body>
 <div class="wrap">
+  <div id="announce" class="announce" role="status" hidden></div>
+
   <!-- Shown before a nation exists -->
   <section id="start" class="card start" hidden>
     <svg class="banner" viewBox="0 0 520 150" preserveAspectRatio="xMidYMid slice" role="img" aria-label="A city skyline on the curve of the Earth under a night sky">
@@ -260,6 +264,7 @@
 
     <footer>
       <span>Signed in as <b id="who"></b></span>
+      <a id="adminLink" href="/admin.html" hidden>Admin</a>
       <a id="signOut">Sign out</a>
     </footer>
   </section>
@@ -407,7 +412,7 @@ document.querySelectorAll('[data-act]').forEach(btn => btn.onclick = async () =>
     render(data);
     showMsg($('msg'), data.message + (data.spy ? ` (${Math.round(data.spy.chance * 100)}% chance)` : ''), !data.spy || data.spy.success);
   } catch (e) {
-    if (e.status === 401) { setToken(null); location.reload(); return; }
+    if (e.status === 401 || e.status === 403) { setToken(null); location.reload(); return; }
     showMsg($('msg'), e.message);
   } finally { btn.disabled = false; }
 });
@@ -424,7 +429,10 @@ function render(data) {
   const n = data.nation, s = data.stats;
 
   $('nationName').textContent = n.name;
-  if (data.account) $('who').textContent = data.account.username;
+  if (data.account) {
+    $('who').textContent = data.account.username;
+    $('adminLink').hidden = !data.account.isAdmin;
+  }
   $('turns').textContent = n.turns;
   tickClock();
 
@@ -565,12 +573,15 @@ setInterval(tickClock, 1000);
 
 (async function init() {
   rules = await api('/api/rules');
+  if (rules.announcement) { $('announce').textContent = rules.announcement; $('announce').hidden = false; }
   token = getToken();
+  let startError = '';
   if (token) {
     try { enterGame(await api('/api/nation')); return; }
-    catch (e) { if (e.status === 401) setToken(null); }
+    catch (e) { if (e.status === 401 || e.status === 403) setToken(null); if (e.status === 403) startError = e.message; }
   }
   $('start').hidden = false;
+  if (startError) { showAuth('signin'); showMsg($('startMsg'), startError); return; }
   // A nation founded before accounts existed? Offer to keep it.
   const legacy = getLegacy();
   if (legacy) {
