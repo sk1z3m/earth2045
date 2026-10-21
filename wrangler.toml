@@ -2,6 +2,10 @@ name = "earth2045"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
 
+# AI nations take their turns every 30 minutes.
+[triggers]
+crons = ["*/30 * * * *"]
+
 # The browser page and its files. Cloudflare serves these for free.
 [assets]
 directory = "./public"

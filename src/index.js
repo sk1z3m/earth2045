@@ -1,8 +1,10 @@
 // Earth: 2045 — Cloudflare Worker (stage 1).
 // Serves the API under /api/*. Everything else is a static file from /public,
-// which Cloudflare serves before this code runs.
+// which Cloudflare serves before this code runs. Every 30 minutes Cloudflare
+// also calls scheduled(), which lets the AI nations take their turns.
 
 import { newNation, accrueTurns, applyAction, view, stats, GameError, RULES } from './game.js';
+import { ROSTER, newBot, botPlay } from './bots.js';
 
 export default {
   async fetch(request, env) {
@@ -17,7 +19,38 @@ export default {
       return json({ error: 'Something went wrong on the server.' }, 500);
     }
   },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runBots(env));
+  },
 };
+
+// Let every AI nation spend the turns it has earned. Creates them the first time.
+async function runBots(env) {
+  const now = Date.now();
+  const { results } = await env.DB
+    .prepare('SELECT id, state, version FROM nations WHERE is_bot = 1').all();
+  if (results.length === 0) return seedBots(env, now);
+  const saves = results.map(row => {
+    const n = accrueTurns(JSON.parse(row.state), now);
+    botPlay(n, now, 4); // small batches keep each run well inside the free CPU limit
+    return env.DB.prepare(
+      `UPDATE nations SET state = ?, land = ?, networth = ?, version = version + 1, updated_at = ?
+       WHERE id = ? AND version = ?`
+    ).bind(JSON.stringify(n), n.land, stats(n).networth, now, row.id, row.version);
+  });
+  await env.DB.batch(saves);
+}
+
+async function seedBots(env, now) {
+  await env.DB.batch(ROSTER.map(entry => {
+    const n = newBot(entry, now);
+    return env.DB.prepare(
+      `INSERT OR IGNORE INTO nations (name, token_hash, state, land, networth, version, is_bot, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)`
+    ).bind(n.name, 'bot:' + crypto.randomUUID(), JSON.stringify(n), n.land, stats(n).networth, now, now);
+  }));
+}
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -41,9 +74,9 @@ async function route(request, env, url) {
 
   if (pathname === '/api/rankings' && method === 'GET') {
     const { results } = await env.DB
-      .prepare('SELECT name, land, networth FROM nations ORDER BY land DESC, networth DESC LIMIT 25')
+      .prepare('SELECT name, land, networth, is_bot FROM nations ORDER BY land DESC, networth DESC LIMIT 25')
       .all();
-    return json({ rankings: results });
+    return json({ rankings: results.map(r => ({ name: r.name, land: r.land, networth: r.networth, ai: r.is_bot === 1 })) });
   }
 
   throw new HttpError(404, 'Not found.');

@@ -82,6 +82,7 @@
   .banner { display: block; width: calc(100% + 32px); margin: -14px -16px 16px; border-radius: 8px 8px 0 0; }
   .banner .sky { stop-color: var(--soft); }
   .banner .sky2 { stop-color: var(--card); }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; margin-left: 6px; vertical-align: 1px; }
   footer { color: var(--muted); font-size: 13px; padding: 8px 0 24px; display: flex; gap: 12px; flex-wrap: wrap; }
   a { color: var(--accent); }
   footer a { cursor: pointer; }
@@ -437,7 +438,7 @@ async function loadRankings() {
     const { rankings } = await api('/api/rankings');
     $('rankings').innerHTML = '<tr><th>#</th><th>Nation</th><th class="num">Land</th></tr>' +
       rankings.map((r, i) => `<tr${r.name === state.nation.name ? ' style="font-weight:600"' : ''}>` +
-        `<td>${i + 1}</td><td>${esc(r.name)}</td><td class="num">${fmt(r.land)}</td></tr>`).join('');
+        `<td>${i + 1}</td><td>${esc(r.name)}${r.ai ? '<span class="tag" title="Computer-controlled nation">AI</span>' : ''}</td><td class="num">${fmt(r.land)}</td></tr>`).join('');
   } catch {}
 }
 

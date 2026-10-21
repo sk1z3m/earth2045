@@ -1,6 +1,9 @@
 -- Earth: 2045 database (Cloudflare D1 / SQLite), stage 1.
 -- Run once locally:  npm run db:init:local
 -- Run once online:   npm run db:init:remote
+--
+-- Upgrading a database made before AI nations existed? Run once:
+--   ALTER TABLE nations ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS nations (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -10,6 +13,7 @@ CREATE TABLE IF NOT EXISTS nations (
   land        INTEGER NOT NULL,          -- copied out of state for rankings
   networth    INTEGER NOT NULL,
   version     INTEGER NOT NULL DEFAULT 1, -- bumped on every save; stops double-spending
+  is_bot      INTEGER NOT NULL DEFAULT 0, -- 1 = AI-controlled nation
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );

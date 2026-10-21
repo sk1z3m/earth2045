@@ -9,7 +9,8 @@ Attacks, alliances and the rest come in later stages (see the design doc).
 | File | What it does |
 | --- | --- |
 | `src/game.js` | All game rules and numbers. Change balance here. |
-| `src/index.js` | The Cloudflare Worker: the API the page talks to, plus saving to the database. |
+| `src/index.js` | The Cloudflare Worker: the API the page talks to, saving to the database, and the AI schedule. |
+| `src/bots.js` | The AI nations: their names, play styles and decision-making. |
 | `public/index.html` | The game page players see. |
 | `schema.sql` | Creates the database tables. |
 | `wrangler.toml` | Cloudflare settings. |
@@ -67,6 +68,18 @@ economy for that player only (taxes in, food and oil used, people move in, const
 - Buildings take 1 turn to order and finish 8 turns later. Units take 1 turn to order and arrive 4 turns later.
 - Exploring: 1 turn per batch; acres per batch and the price per acre change with your size.
 - Tax: 10–70%, no turn cost. Demolishing returns 25% of the cost, no turn cost.
+
+## AI nations
+
+Ten computer-run nations play alongside you and are marked **AI** in the rankings. Every 30 minutes
+Cloudflare wakes them up (a "Cron Trigger" set in `wrangler.toml`) and each spends up to 4 of the turns
+it has earned, using the same actions you do. They are created automatically the first time this runs.
+
+Each has a play style (Builder, Warlord, Turtle, Farmer or Scientist) and a skill level; both are set in the
+`ROSTER` list in `src/bots.js`. Add a line there to add another AI nation.
+
+When running locally, `npm run dev` does not fire the schedule by itself. Run
+`npx wrangler dev --test-scheduled`, then visit `http://localhost:8787/__scheduled` to wake the AI nations.
 
 ## Signing in
 
