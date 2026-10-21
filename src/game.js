@@ -14,11 +14,26 @@ export const CONFIG = {
   logSize: 40,          // report entries kept
 };
 
+// The economy's dials, all in one place. Tested against week-long AI simulations.
+export const ECON = {
+  taxFactor: 0.5,        // cash a person pays per turn at 100% tax
+  popPerAcre: 20,        // people every acre supports
+  popPerHousing: 60,     // extra people per Housing
+  industryCash: 15,      // cash per Industry per turn (pays back in ~53 turns)
+  farmFood: 25,          // food per Farm per turn (~10% of land in farms breaks even)
+  rigOil: 30,            // oil per Oil rig per turn
+  peoplePerFood: 15,     // 1 food per this many people per turn
+  troopsPerFood: 4,      // 1 food per this many troops per turn
+  exploreBase: 100,      // explore cost per acre = base + linear × land + land² ÷ squareDiv
+  exploreLinear: 0.8,
+  exploreSquareDiv: 650, // makes land expensive for big nations (0 = off)
+};
+
 export const BUILDINGS = {
-  housing:  { name: 'Housing',           cost: 400,  effect: '+60 population cap' },
-  industry: { name: 'Industry',          cost: 800,  effect: '+120 cash a turn' },
-  farm:     { name: 'Farm',              cost: 500,  effect: '+40 food a turn' },
-  oilRig:   { name: 'Oil rig',           cost: 900,  effect: '+30 oil a turn' },
+  housing:  { name: 'Housing',           cost: 400,  get effect() { return `+${ECON.popPerHousing} population cap`; } },
+  industry: { name: 'Industry',          cost: 800,  get effect() { return `+${ECON.industryCash} cash a turn`; } },
+  farm:     { name: 'Farm',              cost: 500,  get effect() { return `+${ECON.farmFood} food a turn`; } },
+  oilRig:   { name: 'Oil rig',           cost: 900,  get effect() { return `+${ECON.rigOil} oil a turn`; } },
   barracks: { name: 'Barracks',          cost: 700,  effect: 'Houses 50 troops' },
   lab:      { name: 'Research lab',      cost: 1200, effect: '+1 tech point every 4 turns' },
   grid:     { name: 'Defence grid',      cost: 1000, effect: '+1% defence (max +25%)' },
@@ -81,7 +96,7 @@ export function stats(n) {
   const built = sum(b, (_, v) => v);
   const queuedBuildings = n.queue.filter(q => q.kind === 'building').reduce((t, q) => t + q.count, 0);
   const freeLand = n.land - built - queuedBuildings;
-  const popCap = 20 * n.land + 60 * b.housing;
+  const popCap = ECON.popPerAcre * n.land + ECON.popPerHousing * b.housing;
 
   const troops = sum(u, (k, v) => (UNITS[k].troop ? v : 0));
   const barracksCap = 50 * b.barracks;
@@ -89,10 +104,10 @@ export function stats(n) {
   if (troops > barracksCap && troops > 0) troopUpkeep *= 1 + (troops - barracksCap) / troops; // overflow pays double
   const upkeep = Math.round(troopUpkeep + u.spy * UNITS.spy.upkeep);
 
-  const taxIncome = n.population * (n.tax / 100) * 0.5;
-  const cashPerTick = Math.round(taxIncome + 120 * b.industry - upkeep);
-  const foodPerTick = Math.round(40 * b.farm - n.population / 50 - troops / 10);
-  const oilPerTick = 30 * b.oilRig - sum(u, (k, v) => v * UNITS[k].oil);
+  const taxIncome = n.population * (n.tax / 100) * ECON.taxFactor;
+  const cashPerTick = Math.round(taxIncome + ECON.industryCash * b.industry - upkeep);
+  const foodPerTick = Math.round(ECON.farmFood * b.farm - n.population / ECON.peoplePerFood - troops / ECON.troopsPerFood);
+  const oilPerTick = ECON.rigOil * b.oilRig - sum(u, (k, v) => v * UNITS[k].oil);
 
   const gridBonus = Math.min(0.25, 0.01 * b.grid);
   const offence = Math.round(sum(u, (k, v) => v * UNITS[k].off));
@@ -102,7 +117,8 @@ export function stats(n) {
   const buildDiscount = Math.min(0.4, yardSteps * 0.04);
 
   const exploreAcres = Math.floor(Math.max(3, 25 - n.land / 200));
-  const exploreCostPerAcre = Math.round(100 + 0.8 * n.land);
+  const exploreCostPerAcre = Math.round(ECON.exploreBase + ECON.exploreLinear * n.land +
+    (ECON.exploreSquareDiv ? n.land * n.land / ECON.exploreSquareDiv : 0));
 
   const networth = Math.round(
     n.land * 200 + built * 300 + sum(u, (k, v) => v * UNITS[k].cost * 0.5)
@@ -313,4 +329,4 @@ export function view(n, now) {
   };
 }
 
-export const RULES = { config: CONFIG, buildings: BUILDINGS, units: UNITS };
+export const RULES = { config: CONFIG, econ: ECON, buildings: BUILDINGS, units: UNITS };

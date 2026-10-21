@@ -11,27 +11,27 @@ import { applyAction, newNation, stats, BUILDINGS, UNITS, GameError } from './ga
 export const STYLES = {
   builder: {
     label: 'Builder', density: 0.6, tax: 35, invest: 0.8, army: 0.15,
-    build: { housing: 3, industry: 4, farm: 2, oilRig: 1, barracks: 1, yard: 1 },
+    build: { housing: 3, industry: 4, farm: 1, oilRig: 1, barracks: 1, yard: 1 },
     units: { infantry: 3, artillery: 1 },
   },
   warlord: {
     label: 'Warlord', density: 2, tax: 45, invest: 0.6, army: 0.45,
-    build: { housing: 2, industry: 3, farm: 2, oilRig: 2, barracks: 3 },
+    build: { housing: 2, industry: 3, farm: 1, oilRig: 2, barracks: 3 },
     units: { infantry: 2, tank: 3, jet: 1 },
   },
   turtle: {
     label: 'Turtle', density: 1.5, tax: 35, invest: 0.65, army: 0.35,
-    build: { housing: 2, industry: 3, farm: 2, oilRig: 1, barracks: 2, grid: 2 },
+    build: { housing: 2, industry: 3, farm: 1, oilRig: 1, barracks: 2, grid: 2 },
     units: { infantry: 2, artillery: 3 },
   },
   farmer: {
     label: 'Farmer', density: 0.6, tax: 30, invest: 0.7, army: 0.15,
-    build: { housing: 3, industry: 2, farm: 4, oilRig: 2, barracks: 1 },
+    build: { housing: 3, industry: 3, farm: 3, oilRig: 2, barracks: 1 },
     units: { infantry: 3, artillery: 1 },
   },
   scientist: {
     label: 'Scientist', density: 0.8, tax: 40, invest: 0.7, army: 0.2,
-    build: { housing: 2, industry: 3, farm: 2, oilRig: 1, barracks: 1, lab: 3 },
+    build: { housing: 2, industry: 3, farm: 1, oilRig: 1, barracks: 1, lab: 3 },
     units: { infantry: 2, artillery: 1, spy: 1 },
   },
 };
