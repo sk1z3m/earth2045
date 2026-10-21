@@ -1,0 +1,17 @@
+{
+  "name": "earth2045",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Earth: 2045, a turn-based browser nation builder (stage 1: single-player core)",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "db:init:local": "wrangler d1 execute earth2045 --local --file=schema.sql",
+    "db:init:remote": "wrangler d1 execute earth2045 --remote --file=schema.sql",
+    "deploy": "wrangler deploy",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

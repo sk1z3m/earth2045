@@ -1,0 +1,14 @@
+name = "earth2045"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+
+# The browser page and its files. Cloudflare serves these for free.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# The game database (already created in your Cloudflare account, tables included).
+[[d1_databases]]
+binding = "DB"
+database_name = "earth2045"
+database_id = "9cb4b9bc-ae78-4f85-9889-68bb0d8e689d"

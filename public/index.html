@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth: 2045</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --card: #ffffff; --ink: #1d1f21; --muted: #6a6f75; --line: #e2e2de;
+    --accent: #2f6f5e; --accent-ink: #ffffff; --good: #2f7a3f; --bad: #b3372b; --soft: #eef3f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141618; --card: #1c1f22; --ink: #e8e9ea; --muted: #9aa0a6; --line: #2e3236;
+      --accent: #5fb39b; --accent-ink: #0d1412; --good: #6cc27f; --bad: #ef7d70; --soft: #20302b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding: 8px 0 16px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .2px; }
+  h1 small { font-weight: 400; color: var(--muted); font-size: 15px; margin-left: 8px; }
+  h2 { margin: 0 0 10px; font-size: 16px; }
+  .turns { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .turns b { color: var(--ink); font-size: 18px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat .label { color: var(--muted); font-size: 13px; }
+  .stat .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .delta { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.num, th.num { text-align: right; }
+  td .effect { display: block; color: var(--muted); font-size: 12.5px; }
+  input[type=number], input[type=text], select {
+    font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; width: 90px; }
+  input[type=text] { width: 240px; }
+  table input[type=number] { width: 76px; }
+  input[type=range] { width: 200px; accent-color: var(--accent); }
+  button { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+           border-radius: 6px; padding: 6px 14px; cursor: pointer; font-weight: 500; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: -4px 0 12px; overflow-x: auto; }
+  .tabs button { background: none; color: var(--muted); border: none; border-bottom: 2px solid transparent;
+                 border-radius: 0; padding: 6px 10px; white-space: nowrap; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+  .panel[hidden] { display: none; }
+  .scroll { overflow-x: auto; }
+  @media (max-width: 520px) {
+    .wrap { padding: 12px; }
+    .card { padding: 12px; }
+    th, td { padding: 6px 4px; }
+    table input[type=number] { width: 58px; }
+    td .effect { font-size: 12px; }
+  }
+  .msg { min-height: 22px; margin: 10px 0 0; font-size: 14px; }
+  .msg.err { color: var(--bad); } .msg.ok { color: var(--good); }
+  ul.log { list-style: none; margin: 0; padding: 0; max-height: 340px; overflow: auto; }
+  ul.log li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  ul.log time { color: var(--muted); font-size: 12px; display: block; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-variant-numeric: tabular-nums; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .empty { color: var(--muted); font-size: 14px; }
+  .start { max-width: 520px; margin: 48px auto; }
+  footer { color: var(--muted); font-size: 13px; padding: 8px 0 24px; display: flex; gap: 12px; flex-wrap: wrap; }
+  footer a { color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- Shown before a nation exists -->
+  <section id="start" class="card start" hidden>
+    <h1>Earth: 2045</h1>
+    <p>Found your nation. It starts with 250 acres, a small army and 100 turns. You earn one more turn every 15 minutes.</p>
+    <div class="row">
+      <input id="newName" type="text" maxlength="24" placeholder="Nation name" autocomplete="off">
+      <button id="createBtn">Found nation</button>
+    </div>
+    <p class="hint" style="margin-top:12px">Already have a nation on another device? <a href="#" id="useKey">Enter your key</a>.</p>
+    <p id="startMsg" class="msg"></p>
+  </section>
+
+  <!-- The game -->
+  <section id="game" hidden>
+    <header>
+      <h1>Earth: 2045 <small id="nationName"></small></h1>
+      <div class="turns"><b id="turns">0</b> / 240 turns · <span id="nextTurn"></span></div>
+    </header>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <div class="tabs" role="tablist">
+            <button data-tab="turns" class="on">Use turns</button>
+            <button data-tab="explore">Explore</button>
+            <button data-tab="build">Build</button>
+            <button data-tab="train">Military</button>
+            <button data-tab="policy">Policy</button>
+          </div>
+
+          <div class="panel" data-panel="turns">
+            <p class="hint">Each turn runs one cycle: taxes come in, food and oil are used, people move in, and construction moves forward.</p>
+            <div class="row">
+              <input id="turnCount" type="number" min="1" value="1">
+              <button data-act="useTurns">Use turns</button>
+            </div>
+          </div>
+
+          <div class="panel" data-panel="explore" hidden>
+            <p class="hint" id="exploreHint"></p>
+            <div class="row">
+              <input id="exploreTurns" type="number" min="1" value="1">
+              <span>turns of exploring</span>
+              <button data-act="explore">Explore</button>
+            </div>
+          </div>
+
+          <div class="panel" data-panel="build" hidden>
+            <p class="hint" id="buildHint"></p>
+            <div class="scroll"><table id="buildTable"></table></div>
+            <div class="row" style="margin-top:10px">
+              <button data-act="build">Build (1 turn)</button>
+              <span class="hint" style="margin:0" id="buildTotal"></span>
+            </div>
+          </div>
+
+          <div class="panel" data-panel="train" hidden>
+            <p class="hint">Units are ready 4 turns after you train them. Troops beyond your barracks space cost double upkeep.</p>
+            <div class="scroll"><table id="trainTable"></table></div>
+            <div class="row" style="margin-top:10px">
+              <button data-act="train">Train (1 turn)</button>
+              <span class="hint" style="margin:0" id="trainTotal"></span>
+            </div>
+          </div>
+
+          <div class="panel" data-panel="policy" hidden>
+            <h2>Tax rate</h2>
+            <p class="hint">Higher tax brings in more cash now but slows population growth.</p>
+            <div class="row">
+              <input id="taxRange" type="range" min="10" max="70" step="1">
+              <b id="taxValue"></b>
+              <button data-act="setTax">Save</button>
+            </div>
+            <h2 style="margin-top:20px">Demolish</h2>
+            <p class="hint">Frees the acres and returns 25% of the building's cost. No turn cost.</p>
+            <div class="row">
+              <input id="demoCount" type="number" min="1" value="1">
+              <select id="demoType"></select>
+              <button class="ghost" data-act="demolish">Demolish</button>
+            </div>
+          </div>
+
+          <p id="msg" class="msg"></p>
+        </div>
+
+        <div class="card">
+          <h2>Report</h2>
+          <ul class="log" id="log"></ul>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h2>Military</h2>
+          <div class="kv" id="military"></div>
+        </div>
+        <div class="card">
+          <h2>Under way</h2>
+          <div id="queue"></div>
+        </div>
+        <div class="card">
+          <h2>Rankings</h2>
+          <table id="rankings"></table>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <a id="showKey">Back up your key</a>
+      <a id="signOut">Sign out</a>
+    </footer>
+  </section>
+</div>
+
+<script>
+const KEY = 'e2045.token';
+let token = null, state = null, rules = null, serverOffset = 0;
+
+const $ = id => document.getElementById(id);
+const fmt = v => Math.round(v).toLocaleString('en-CA');
+const signed = v => (v >= 0 ? '+' : '−') + fmt(Math.abs(v));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function getToken() { try { return localStorage.getItem(KEY); } catch { return null; } }
+function setToken(t) { token = t; try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch {} }
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || 'Request failed'); e.status = res.status; throw e; }
+  return data;
+}
+
+function showMsg(el, text, ok) { el.textContent = text || ''; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
+
+// ---------- start screen ----------
+$('createBtn').onclick = async () => {
+  try {
+    const data = await api('/api/nation', { name: $('newName').value });
+    setToken(data.token);
+    enterGame(data);
+  } catch (e) { showMsg($('startMsg'), e.message); }
+};
+$('newName').addEventListener('keydown', e => { if (e.key === 'Enter') $('createBtn').click(); });
+$('useKey').onclick = async e => {
+  e.preventDefault();
+  const k = prompt('Paste your nation key:');
+  if (!k) return;
+  setToken(k.trim());
+  try { enterGame(await api('/api/nation')); }
+  catch (err) { setToken(null); showMsg($('startMsg'), err.message); }
+};
+
+// ---------- game ----------
+$('showKey').onclick = () => prompt('Your nation key. Keep it private; it is the only way to sign in on another device.', token);
+$('signOut').onclick = () => {
+  if (!confirm('Sign out? You will need your key to get back in.')) return;
+  setToken(null); location.reload();
+};
+
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.panel').forEach(p => p.hidden = p.dataset.panel !== b.dataset.tab);
+  showMsg($('msg'), '');
+});
+
+$('taxRange').oninput = () => $('taxValue').textContent = $('taxRange').value + '%';
+
+function counts(tableId) {
+  const out = {};
+  document.querySelectorAll(`#${tableId} input[data-type]`).forEach(i => {
+    const v = parseInt(i.value, 10);
+    if (v > 0) out[i.dataset.type] = v;
+  });
+  return out;
+}
+
+function actionBody(act) {
+  switch (act) {
+    case 'useTurns': return { type: act, count: parseInt($('turnCount').value, 10) };
+    case 'explore':  return { type: act, batches: parseInt($('exploreTurns').value, 10) };
+    case 'build':    return { type: act, items: counts('buildTable') };
+    case 'train':    return { type: act, items: counts('trainTable') };
+    case 'setTax':   return { type: act, rate: parseInt($('taxRange').value, 10) };
+    case 'demolish': return { type: act, items: { [$('demoType').value]: parseInt($('demoCount').value, 10) } };
+  }
+}
+
+document.querySelectorAll('[data-act]').forEach(btn => btn.onclick = async () => {
+  btn.disabled = true;
+  try {
+    const data = await api('/api/action', actionBody(btn.dataset.act));
+    render(data);
+    showMsg($('msg'), data.message, true);
+  } catch (e) {
+    if (e.status === 401) { setToken(null); location.reload(); return; }
+    showMsg($('msg'), e.message);
+  } finally { btn.disabled = false; }
+});
+
+function enterGame(data) {
+  $('start').hidden = true;
+  $('game').hidden = false;
+  render(data);
+}
+
+function render(data) {
+  state = data;
+  serverOffset = data.serverTime - Date.now();
+  const n = data.nation, s = data.stats;
+
+  $('nationName').textContent = n.name;
+  $('turns').textContent = n.turns;
+  tickClock();
+
+  const stat = (label, value, delta) =>
+    `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div>` +
+    (delta !== undefined ? `<div class="delta ${delta.cls || ''}">${delta.text}</div>` : '') + `</div>`;
+  const per = v => ({ text: signed(v) + ' a turn', cls: v < 0 ? 'neg' : 'pos' });
+  $('stats').innerHTML =
+    stat('Land', fmt(n.land) + ' acres', { text: `${fmt(s.freeLand)} free` }) +
+    stat('Population', fmt(n.population), { text: `cap ${fmt(s.popCap)}` }) +
+    stat('Cash', fmt(n.cash), per(s.cashPerTick)) +
+    stat('Food', fmt(n.food), per(s.foodPerTick)) +
+    stat('Oil', fmt(n.oil), per(s.oilPerTick)) +
+    stat('Networth', fmt(s.networth), { text: `tech points ${n.techPoints}` });
+
+  $('turnCount').max = n.turns;
+  $('exploreTurns').max = n.turns;
+  $('exploreHint').textContent =
+    `Each turn of exploring finds ${s.exploreAcres} acres for ${fmt(s.explorePerTurn)} cash ` +
+    `(${fmt(s.exploreCostPerAcre)} an acre). It gets pricier as your nation grows.`;
+
+  // Build table
+  const disc = s.buildDiscount;
+  $('buildHint').textContent = `${fmt(s.freeLand)} free acres. Buildings finish 8 turns after you start them.` +
+    (disc > 0 ? ` Construction yards save you ${Math.round(disc * 100)}%.` : '');
+  $('buildTable').innerHTML = '<tr><th>Building</th><th class="num">Cost</th><th class="num">Have</th><th class="num">Build</th></tr>' +
+    Object.entries(rules.buildings).map(([k, b]) =>
+      `<tr><td>${b.name}<span class="effect">${b.effect}</span></td>` +
+      `<td class="num">${fmt(b.cost * (1 - disc))}</td><td class="num">${fmt(n.buildings[k])}</td>` +
+      `<td class="num"><input type="number" min="0" placeholder="0" data-type="${k}"></td></tr>`).join('');
+
+  // Train table
+  $('trainTable').innerHTML = '<tr><th>Unit</th><th class="num">Cost</th><th class="num">Off / Def</th><th class="num">Upkeep</th><th class="num">Have</th><th class="num">Train</th></tr>' +
+    Object.entries(rules.units).map(([k, u]) =>
+      `<tr><td>${u.name}</td><td class="num">${fmt(u.cost)}</td>` +
+      `<td class="num">${u.troop ? `${u.off} / ${u.def}` : '—'}</td>` +
+      `<td class="num">${u.upkeep}${u.oil ? ` + ${u.oil} oil` : ''}</td>` +
+      `<td class="num">${fmt(n.units[k])}</td>` +
+      `<td class="num"><input type="number" min="0" placeholder="0" data-type="${k}"></td></tr>`).join('');
+
+  wireTotals();
+
+  $('taxRange').value = n.tax;
+  $('taxValue').textContent = n.tax + '%';
+  $('demoType').innerHTML = Object.entries(rules.buildings)
+    .map(([k, b]) => `<option value="${k}">${b.name} (${n.buildings[k]})</option>`).join('');
+
+  $('military').innerHTML = [
+    ['Offence', fmt(s.offence)],
+    ['Defence', fmt(s.defence) + (s.gridBonus ? ` (+${Math.round(s.gridBonus * 100)}%)` : '')],
+    ['Troops', `${fmt(s.troops)} / ${fmt(s.barracksCap)} barracks space`],
+    ['Spies', fmt(n.units.spy)],
+    ['Upkeep', fmt(s.upkeep) + ' cash a turn'],
+  ].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+
+  $('queue').innerHTML = n.queue.length
+    ? '<table>' + n.queue.map(q => {
+        const def = q.kind === 'building' ? rules.buildings[q.type] : rules.units[q.type];
+        return `<tr><td>${fmt(q.count)} ${def.name}</td><td class="num">${q.ticks} turn${q.ticks > 1 ? 's' : ''} left</td></tr>`;
+      }).join('') + '</table>'
+    : '<p class="empty">Nothing under construction or in training.</p>';
+
+  $('log').innerHTML = n.log.map(e =>
+    `<li><time>${new Date(e.at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' })}</time>${esc(e.text)}</li>`).join('');
+
+  loadRankings();
+}
+
+function wireTotals() {
+  const upd = () => {
+    const n = state.nation, s = state.stats;
+    const b = counts('buildTable');
+    const bc = Object.entries(b).reduce((t, [k, v]) => t + v * rules.buildings[k].cost, 0) * (1 - s.buildDiscount);
+    const bn = Object.values(b).reduce((t, v) => t + v, 0);
+    $('buildTotal').textContent = bn ? `${bn} buildings, ${fmt(bc)} cash` : '';
+    const u = counts('trainTable');
+    const uc = Object.entries(u).reduce((t, [k, v]) => t + v * rules.units[k].cost, 0);
+    const un = Object.values(u).reduce((t, v) => t + v, 0);
+    $('trainTotal').textContent = un ? `${fmt(un)} units, ${fmt(uc)} cash` : '';
+  };
+  document.querySelectorAll('#buildTable input, #trainTable input').forEach(i => i.oninput = upd);
+  upd();
+}
+
+async function loadRankings() {
+  try {
+    const { rankings } = await api('/api/rankings');
+    $('rankings').innerHTML = '<tr><th>#</th><th>Nation</th><th class="num">Land</th></tr>' +
+      rankings.map((r, i) => `<tr${r.name === state.nation.name ? ' style="font-weight:600"' : ''}>` +
+        `<td>${i + 1}</td><td>${esc(r.name)}</td><td class="num">${fmt(r.land)}</td></tr>`).join('');
+  } catch {}
+}
+
+function tickClock() {
+  if (!state) return;
+  const next = state.nation.nextTurnAt;
+  if (next === null) { $('nextTurn').textContent = 'turn bank full'; return; }
+  const ms = next - (Date.now() + serverOffset);
+  if (ms <= 0) { $('nextTurn').textContent = 'new turn arriving…'; refresh(); return; }
+  const m = Math.floor(ms / 60000), sec = Math.floor(ms / 1000) % 60;
+  $('nextTurn').textContent = `next in ${m}:${String(sec).padStart(2, '0')}`;
+}
+
+let refreshing = false, lastRefresh = 0;
+async function refresh() {
+  if (refreshing || Date.now() - lastRefresh < 5000) return;
+  refreshing = true;
+  lastRefresh = Date.now();
+  try { render(await api('/api/nation')); } catch {} finally { refreshing = false; }
+}
+
+setInterval(tickClock, 1000);
+
+(async function init() {
+  rules = await api('/api/rules');
+  token = getToken();
+  if (token) {
+    try { enterGame(await api('/api/nation')); return; }
+    catch (e) { if (e.status === 401) setToken(null); }
+  }
+  $('start').hidden = false;
+  $('newName').focus();
+})();
+</script>
+</body>
+</html>
